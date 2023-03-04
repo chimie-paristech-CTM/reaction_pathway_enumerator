@@ -98,8 +98,8 @@ class BondingSystem:
         if len(self.vos) > 1:
             electronegativity_list = [electro_dict[vo.atom_type] for vo in self.vos]
             if max(electronegativity_list) - min(electronegativity_list) >= 0.4:
-                self.polarity = {'pos_pole': self.vo[np.argmax(electronegativity_list)], 
-                                'neg_pole': self.vo[np.argmin(electronegativity_list)]}
+                self.polarity = {'pos_pole': self.vos[np.argmax(electronegativity_list)], 
+                                'neg_pole': self.vos[np.argmin(electronegativity_list)]}
     
     def get_atom_info(self):
         """ Returns the atom_ids and atom_types in a dictionary. """
