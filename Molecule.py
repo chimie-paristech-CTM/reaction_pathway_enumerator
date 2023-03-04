@@ -62,7 +62,7 @@ class Atom:
 
     def occupy_vos(self):
         """ Occupies the valence orbitals associated with the atom, based on the number of valence electrons present. """
-        n_doubly_occ = self.num_valence_electrons // (self.num_valence_orbitals + 1)
+        n_doubly_occ = self.num_valence_electrons % (self.num_valence_orbitals)
         n_singly_occ = self.num_valence_electrons - n_doubly_occ * 2
 
         for vo in self.valence_orbitals:
@@ -100,9 +100,14 @@ class BondingSystem:
             if max(electronegativity_list) - min(electronegativity_list) >= 0.4:
                 self.polarity = {'pos_pole': self.vo[np.argmax(electronegativity_list)], 
                                 'neg_pole': self.vo[np.argmin(electronegativity_list)]}
+    
+    def get_atom_info(self):
+        """ Returns the atom_ids and atom_types in a dictionary. """
+        return {'atom_ids': [vo.atom_idx for vo in self.vos], 'atom_types': [vo.atom_type for vo in self.vos]} 
 
     def reverse_vo_order(self):
         """ Reverses the order of the vos. """
+        # TODO let this return a copy!
         if len(self.vos) == 2:
             self.vos.reverse()
 
