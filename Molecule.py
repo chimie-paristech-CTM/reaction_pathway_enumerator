@@ -78,7 +78,7 @@ class BondingSystem:
         self.idx = idx
         self.vos = []
         self.num_electrons = 0
-        self.polarity = None
+        self.polarity_set = False
 
     def add_vo(self, vo: 'ValenceOrbital'):
         """ Add valence orbitals to the bonding system (and modify the pairing bools accordingly). """
@@ -92,24 +92,32 @@ class BondingSystem:
 
     def set_polarity(self):
         """ 
-        Sets self.polarity to a dictionary with keys 'pos_pole' and 'neg_pole' 
-        if electronegativity spread bigger than 0.4. Values are specific vos.
+        If electronegativity spread bigger than 0.4, set the vo order of the bonding system, with the negative pole first. 
+        Values are specific vos.
         """
         if len(self.vos) > 1:
             electronegativity_list = [electro_dict[vo.atom_type] for vo in self.vos]
-            if max(electronegativity_list) - min(electronegativity_list) >= 0.4:
-                self.polarity = {'pos_pole': self.vos[np.argmax(electronegativity_list)], 
-                                'neg_pole': self.vos[np.argmin(electronegativity_list)]}
-    
-    def get_atom_info(self):
-        """ Returns the atom_ids and atom_types in a dictionary. """
-        return {'atom_ids': [vo.atom_idx for vo in self.vos], 'atom_types': [vo.atom_type for vo in self.vos]} 
+            if max(electronegativity_list) - min(electronegativity_list) >= 0.395:
+                self.vos = [self.vos[np.argmax(electronegativity_list)], self.vos[np.argmin(electronegativity_list)]]
+                self.polarity_set = True
 
     def reverse_vo_order(self):
         """ Reverses the order of the vos. """
-        # TODO let this return a copy!
         if len(self.vos) == 2:
             self.vos.reverse()
+
+    def is_lone_pair(self):
+        """ Returns True if bonding system corresponds to lone pair. """
+        if len(self.vos) == 1 and self.num_electrons == 2:
+            return True
+        
+    def is_xh_bond(self):
+        """ Returns True if bonding system corresponds to an X-H bond. """
+        return len(self.get_heavy_atoms()) != len(self.vos)
+    
+    def get_heavy_atoms(self):
+        """ Returns a list of heavy atom indices present in the bonding system. """
+        return [vo.atom_idx for vo in self.vos if vo.atom_type != 'H']
 
     def __str__(self) -> str:
         return f"idx: {self.idx}; vos: {[str(vo) for vo in self.vos]}"
@@ -130,15 +138,24 @@ class Molecule:
         Chem.Kekulize(self.orig_molecule)  # change to kekulized smiles to remove aromatic bonds
         self.num_atoms = self.orig_molecule.GetNumAtoms()
 
-        self.atoms = []
-        self.bonding_systems = []
+        self.atoms = self.get_atoms()
+        self.bonding_systems = self.get_bonding_systems()
 
-        # Process rdkit_atoms, add them to the editable version of the molecule, and create Atom objects
+    def get_atoms(self):
+        """ Process rdkit_atoms, add them to the editable version of the molecule, and create Atom objects. """
+        atoms = []
+
         rd_periodic_table = Chem.GetPeriodicTable()
         for idx, atom in enumerate(self.orig_molecule.GetAtoms()):
             atom.SetIsAromatic(False)  # remove aromaticity properties
             num_valence_electrons = rd_periodic_table.GetNOuterElecs(atom.GetSymbol()) - atom.GetFormalCharge()
-            self.atoms.append(Atom(molecule=self, atom_type=atom.GetSymbol(), idx=idx, num_valence_electrons=num_valence_electrons))
+            atoms.append(Atom(molecule=self, atom_type=atom.GetSymbol(), idx=idx, num_valence_electrons=num_valence_electrons))
+
+        return atoms
+
+    def get_bonding_systems(self):
+        """ Construct the initial bonding systems. """
+        bonding_systems = []
 
         # Create adjacency list representation for bonds. Initial_bonds is not symmetric.
         initial_bonds: Dict[int, List[int]] = dict()
@@ -160,7 +177,7 @@ class Molecule:
                 if vo.num_electrons == 0 or vo.num_electrons == 2:
                     new_bonding_system = BondingSystem(bonding_system_idx)
                     new_bonding_system.add_vo(vo)
-                    self.bonding_systems.append(new_bonding_system)
+                    bonding_systems.append(new_bonding_system)
                     bonding_system_idx += 1
                 elif vo.num_electrons == 1 and vo.paired == False:
                     new_bonding_system = BondingSystem(bonding_system_idx)
@@ -174,5 +191,7 @@ class Molecule:
                                     partner_vo.set_paired()
                                     break
                             vo.set_paired()
-                    self.bonding_systems.append(new_bonding_system)
+                    bonding_systems.append(new_bonding_system)
                     bonding_system_idx += 1
+
+        return bonding_systems

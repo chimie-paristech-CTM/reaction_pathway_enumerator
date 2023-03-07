@@ -42,15 +42,12 @@ def set_polarization_bonding_systems(bonding_systems, reaction_type):
         for bonding_system in bonding_systems:
             if len(bonding_system) > 1:
                 bonding_system.set_polarity()
-                if bonding_system.polarity is not None:
-                    bonding_system.vos = [bonding_system.polarity['pos_pole'], bonding_system.polarity['neg_pole']]
+
     elif reaction_type == 'nucleophilic':
         for bonding_system in bonding_systems:
             if len(bonding_system) > 1:
                 bonding_system.set_polarity()
-                if bonding_system.polarity is not None:
-                    bonding_system.vos = [bonding_system.polarity['neg_pole'], bonding_system.polarity['pos_pole']]    
-
+    
 
 def construct_new_bonding_system(vo1, vo2, idx=-1):
     """ Auxiliary function to construct a new bonding system from 2 existing vos.
@@ -84,30 +81,30 @@ def enumerate_reaction_possibilites(molecule: 'Molecule', max_length: int):
     # filter out non-active bonding systems
     for bonding_system in molecule.bonding_systems:
         print(bonding_system)
-        info = bonding_system.get_atom_info()
-        if len(bonding_system) == 1 and bonding_system.num_electrons == 2:
-            if info['atom_ids'] in atoms_with_lone_pairs_covered:
+        if bonding_system.is_lone_pair():
+            if bonding_system.get_heavy_atoms()[0] in atoms_with_lone_pairs_covered:
                 continue
             else:
                 active_bonding_system_ids.append(bonding_system.idx)
-                atoms_with_lone_pairs_covered.append(info['atom_ids'])
-        elif 'H' in info['atom_types']:
-            if min(info['atom_ids']) in atoms_with_xh_covered: # H atoms have higher indices
+                atoms_with_lone_pairs_covered.append(bonding_system.get_heavy_atoms()[0])
+        elif bonding_system.is_xh_bond():
+            if bonding_system.get_heavy_atoms()[0] in atoms_with_xh_covered:
                 continue
             else:
                 active_bonding_system_ids.append(bonding_system.idx)
-                atoms_with_xh_covered.append(info['atom_ids'][0])
-        elif info['atom_ids'] in bonds_covered:
+                atoms_with_xh_covered.append(bonding_system.get_heavy_atoms()[0])
+        elif bonding_system.get_heavy_atoms() in bonds_covered:
             continue
         else:
             active_bonding_system_ids.append(bonding_system.idx)
-            bonds_covered.append(info['atom_ids'])
+            bonds_covered.append(bonding_system.get_heavy_atoms())
+
+    print(len(active_bonding_system_ids))
 
     all_products = []
     for L in range(1, max_length + 1):
         for idx_comb in itertools.combinations(active_bonding_system_ids, L):
             for idx_perm in itertools.permutations(idx_comb):
-                #print(list(idx_perm))
                 generated_products = generate_products(molecule, list(idx_perm))
                 if generated_products != None:
                     all_products += generated_products
@@ -160,7 +157,7 @@ def generate_products_for_single_bonding_system(molecule, old_bonding_systems):
         # heterolytic splitting
         new_bonding_systems = split_single_bonding_system(old_bonding_systems[0], old_bonding_systems[0].num_electrons, 1)
         products.append(generate_smiles(molecule.orig_molecule, old_bonding_systems, new_bonding_systems))
-        # homolytic splitting 
+        # homolytic splitting -- 2 options
         new_bonding_systems = split_single_bonding_system(old_bonding_systems[0], old_bonding_systems[0].num_electrons, 2)
         products.append(generate_smiles(molecule.orig_molecule, old_bonding_systems, new_bonding_systems))
         new_bonding_systems = split_single_bonding_system(old_bonding_systems[0], old_bonding_systems[0].num_electrons, 0)
@@ -190,9 +187,14 @@ def get_bonding_system_arrangments(molecule, idx_list, reaction_type):
 
     for idx in idx_list[1:]:
         if len(molecule.bonding_systems[idx]) == 2:
-            if (reaction_type == 'electrophilic' or reaction_type == 'nucleophilic') and molecule.bonding_systems[idx].polarity != None:
+            if reaction_type == 'nucleophilic' and molecule.bonding_systems[idx].polarity_set == True:
                 for i in range(len(bonding_system_arrangments)):
-                    bonding_system_arrangments[i].append(molecule.bonding_systems[idx])
+                    bonding_system_arrangments[i].append(copy.deepcopy(molecule.bonding_systems[idx]))
+            elif reaction_type == 'electrophilic' and molecule.bonding_systems[idx].polarity_set == True:
+                for i in range(len(bonding_system_arrangments)):
+                    bonding_system = copy.deepcopy(molecule.bonding_systems[idx])
+                    bonding_system.reverse_vo_order()
+                    bonding_system_arrangments[i].append(bonding_system)
             else:
                 bonding_system_arrangments = [copy.deepcopy(bonding_system_arrangment) for bonding_system_arrangment in bonding_system_arrangments for _ in (0, 1)] 
                 # duplicate the number of arrangments everytime there is a choice
@@ -227,7 +229,7 @@ def generate_products(molecule: 'Molecule', idx_list: list):
         return generate_products_for_single_bonding_system(molecule, old_bonding_systems)
 
     # you don't want a lone pair or empty orbital halfway a sequence and you also don't want lone pairs in radical/concerted sequence
-    # TODO charge transfer!!!
+    # TODO implement charge transfer???
     if any([len(bonding_system) == 1 for bonding_system in old_bonding_systems[1:-1]]):
         return None 
 
@@ -250,7 +252,6 @@ def generate_products(molecule: 'Molecule', idx_list: list):
     # for every arrangment, get a candidate product
     for arrangment in bonding_system_arrangments:
         new_bonding_systems = modify_bonding_systems(arrangment)
-        #print(old_bonding_systems, new_bonding_systems)
         if new_bonding_systems != None:
             products.append(generate_smiles(molecule.orig_molecule, old_bonding_systems, new_bonding_systems))
                     
@@ -336,7 +337,8 @@ def construct_terminal_bonding_system(num_electrons, reaction_path):
 
 if __name__ == '__main__':
     mol = Molecule('CCCC(=O)OC(=O)N.C#N')
-    #mol = Molecule('C.C#N')
+    #mol = Molecule('C.C#[N+2]')
+    print(len(mol.bonding_systems))
     products = generate_products(mol, [8, 1])
     print(mol.smi, products)
     products = generate_products(mol, [1])
