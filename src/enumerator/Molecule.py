@@ -1,6 +1,5 @@
-from typing import Optional, Dict, List
+from typing import Dict, List
 from rdkit import Chem
-import copy
 import numpy as np
 
 
