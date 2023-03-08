@@ -132,12 +132,12 @@ class AimnetCalculator():
         Predicts the energy of a molecule in tensorial representation
         Returns DFT calculations for single atom (with SMILES specified in smi)
         """
-        from mech_pred.utils import get_orca_energy
+        #from mech_pred.utils import get_orca_energy
         if data['numbers'].size(dim=1) == 1:
             # if the molecule is a single atom, use Orca/DFT to calculate the energy since AIMNet doesn't work
             if smi == '[H+]':
                 return 0.0  # proton has 0 energy
-            return get_orca_energy(smi, optimizer='rdkit')
+            # return get_orca_energy(smi, optimizer='rdkit')
         # change data to have alpha and beta total charge
         data['charge'] = 0.5 * torch.stack([data['charge'] - data['mult'] + 1, data['charge'] + data['mult'] - 1], dim=-1)
         return float(np.mean([model(data)['energy'][-1].cpu().numpy() for model in self.models]).tolist())

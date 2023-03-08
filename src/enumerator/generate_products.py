@@ -19,11 +19,11 @@ def determine_reaction_type(bonding_system_init):
     if len(bonding_system_init) == 2:
         return 'concerted' # TODO: is this correct? Can't you have simultaneous heterolytic dissociation and reaction? Maybe based on a EN-diff threshold?
     elif len(bonding_system_init) == 1:
-        if bonding_system_init.vos[0].num_electrons == 2:
+        if bonding_system_init.vos[0].num_electrons == 0:
             return 'electrophilic'
         elif bonding_system_init.vos[0].num_electrons == 1:
             return 'radical'
-        elif bonding_system_init.vos[0].num_electrons == 0:
+        elif bonding_system_init.vos[0].num_electrons == 2:
                 return 'nucleophilic'
     else:
         print('Not yet implemented!')
@@ -180,10 +180,10 @@ def get_bonding_system_arrangments(molecule, idx_list, reaction_type):
 
     for idx in idx_list[1:]:
         if len(molecule.bonding_systems[idx]) == 2:
-            if reaction_type == 'nucleophilic' and molecule.bonding_systems[idx].polarity_set == True:
+            if reaction_type == 'electrophilic' and molecule.bonding_systems[idx].polarity_set == True:
                 for i in range(len(bonding_system_arrangments)):
                     bonding_system_arrangments[i].append(copy.deepcopy(molecule.bonding_systems[idx]))
-            elif reaction_type == 'electrophilic' and molecule.bonding_systems[idx].polarity_set == True:
+            elif reaction_type == 'nucleophilic' and molecule.bonding_systems[idx].polarity_set == True:
                 for i in range(len(bonding_system_arrangments)):
                     bonding_system = copy.deepcopy(molecule.bonding_systems[idx])
                     bonding_system.reverse_vo_order()
