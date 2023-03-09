@@ -1,11 +1,8 @@
-#from Molecule import Molecule
-#from generate_products import enumerate_reaction_possibilites, generate_products
 import argparse
 from tqdm import tqdm
 
 from enumerator.Molecule import Molecule
 from enumerator.generate_products import enumerate_reaction_possibilites, generate_products
-#from enumerator.get_energies import AimnetCalculator
 from enumerator.get_energies import get_system_energy
 
 
@@ -17,20 +14,53 @@ def get_args():
     return parser.parse_args()
 
 
-def enumerate_reaction_possibilities():
+def get_thermodynamically_feasible_products():
+    """ Returns a list of feasible product molecules based on the SMILES input. """
     args = get_args()
-    mol = Molecule(args.smiles)
-    if args.idx_list:
-        products = generate_products(mol, args.idx_list)
-    elif args.n_bonding_systems:
-        products = enumerate_reaction_possibilites(mol, args.n_bonding_systems)
+    products = enumerate_potential_products(args.smiles, args.idx_list, args.n_bonding_systems)
+    product_energies_dict = get_energy_dict(args.smiles, products)
+
+    feasible_products_dict = dict((k, product_energies_dict[k]) for k in product_energies_dict.keys() if product_energies_dict[k] < 0)
     
+    print(feasible_products_dict)
+    print(len(feasible_products_dict))
+
+
+def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
+    """ Enumerates all the potential products based on either an index list or a number of bonding systems.
+
+    Args:
+        smiles (str): A SMILES string
+        idx_list (list, optional): A list of bonding system indices. Defaults to None.
+        n_bonding_systems (int, optional): The maximum number of active bonding systems. Defaults to 4.
+
+    Returns:
+        list: A list of product SMILES.
+    """
+    mol = Molecule(smiles)
+    if idx_list:
+        products = generate_products(mol, idx_list)
+    elif n_bonding_systems:
+        products = enumerate_reaction_possibilites(mol, n_bonding_systems)
+
+    products = list(set(products)) 
+
     return products
 
-def get_energies(products):
-    energy_dict = {}
-    #calculator = AimnetCalculator()
-    for product in tqdm(products, total=len(products)):
-        energy_dict[product] = get_system_energy(product)
 
-    print(energy_dict)
+def get_energy_dict(reactants, products):
+    """ Obtains a dictionary of relative product energies.
+
+    Args:
+        reactants (str): SMILES string corresponding to the reactants.
+        products (str): SMILES string corresponding to the products.
+
+    Returns:
+        dict: a dictionary of SMILES and their corresponding energies.
+    """
+    energy_dict = {}
+    reactant_energy = get_system_energy(reactants)
+    for product in tqdm(products, total=len(products)):
+        energy_dict[product] = get_system_energy(product) - reactant_energy
+
+    return energy_dict
