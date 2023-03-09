@@ -1,35 +1,46 @@
-from rdkit import Chem
-
-from typing import List, Tuple, Optional, Dict, Optional
-import numpy as np
-import os
-import logging
-from rdkit.Chem import Descriptors, AllChem
+from rdkit.Chem import AllChem  # type: ignore
+from rdkit.Chem import Descriptors
 from rdkit import Chem  # type: ignore
-from pathlib import Path
-import torch
-from torch import Tensor
-
-import subprocess
+import os
 import shutil
+from typing import List, Tuple, Optional
+import logging
+import subprocess
+
+import contextlib
+from pathlib import Path
+
+HARTREE_TO_EV = 27.2114
 
 
-def smi_to_coords(smi: str, optimizer: str = 'rdkit') -> Tuple[List[str], List[Tuple[float, float, float]]]:
+@contextlib.contextmanager
+def make_tmp_directory():
+    """Makes a temporary directory to do things in, and then reverts back on exit."""
+    prev_cwd = Path.cwd()
+    if not os.path.exists('tmp_{}'.format(os.getpid())):
+        os.mkdir('tmp_{}'.format(os.getpid()))
+    os.chdir('tmp_{}'.format(os.getpid()))
+    try:
+        yield
+    finally:
+        os.chdir(prev_cwd)
+        #shutil.rmtree('tmp_{}/'.format(os.getpid()))
+
+
+def smi_to_coords(mol: 'Chem.Mol', optimizer: str = 'rdkit') -> Tuple[List[str], List[Tuple[float, float, float]]]:
     """
-    Returns the atoms and coordinates of a molecule (given as a smiles string) as arrays.
+    Returns the atoms and coordinates of a molecule as arrays.
     Supported Geometry Optimizers: 'rdkit' (ETKDG method), 'xtb' (GFN2-xTB method)
     """
     if optimizer not in {'rdkit', 'xtb'}:
         raise ValueError('Invalid optimizer. Supported optimizers: rdkit, xtb')
 
-    mol = Chem.MolFromSmiles(smi)
-    mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=0xf00d)  # for reproducibility
     lines = Chem.MolToMolBlock(mol).split('\n')
     atoms = []
     atom_coords = []
 
-    logging.info('Converting SMILES {} to coordinates'.format(smi))
+    logging.info('Converting to coordinates')
     # string parsing RDKit mol block
     for idx, line in enumerate(lines):
         if idx < 3:
@@ -77,17 +88,56 @@ def smi_to_coords(smi: str, optimizer: str = 'rdkit') -> Tuple[List[str], List[T
     return atoms, atom_coords
 
 
-def make_tmp_directory():
-    """Makes a temporary directory to do things in, and then reverts back on exit."""
-    prev_cwd = Path.cwd()
-    if not os.path.exists('tmp_{}'.format(os.getpid())):
-        os.mkdir('tmp_{}'.format(os.getpid()))
-    os.chdir('tmp_{}'.format(os.getpid()))
-    try:
-        yield
-    finally:
-        os.chdir(prev_cwd)
-        shutil.rmtree('tmp_{}/'.format(os.getpid()))
+def get_molecule_energy(molecule: str, optimizer: str = 'rdkit', n_attempts=10) -> Optional[float]:
+    """
+    Returns the (potential) energy of a single molecule (given as a smiles string) in hartree.
+    Uses xTB (GFN2-xTB) calculations for energy calculation.
+    Geometry optimization is done either by RDKit (ETKDG method) or xTB (GFN2-xTB method).
+    Energy calculations are attempted for n_attempts times. If they all fail, then
+    this function returns None.
+    """
+    mol = Chem.MolFromSmiles(molecule)
+    canonical_smi = Chem.MolToSmiles(mol, canonical=True)
+    if canonical_smi != molecule:
+        return get_molecule_energy(canonical_smi, optimizer=optimizer)
+    mol = Chem.AddHs(mol)
+
+    if canonical_smi == '[H+]':
+        return 0.0
+
+    if len(mol.GetAtoms()) == 1:
+        atoms, atom_coords = [mol.GetAtoms()[0].GetSymbol()], [(0.0, 0.0, 0.0)]
+    else:
+        try:
+            atoms, atom_coords = smi_to_coords(mol, optimizer=optimizer)
+        except Exception as e:
+            logging.warning('{} in xTB geometry opt for {}'.format(e, molecule))
+            return None
+
+    charge = Chem.rdmolops.GetFormalCharge(mol)
+    num_unpaired_electrons = Descriptors.NumRadicalElectrons(mol)
+    xyzfile = output_3d_coords(atoms, atom_coords, output_format='xyz')
+
+    with make_tmp_directory():
+        with open("tmp.xyz", "w") as f:
+            f.write(xyzfile)
+
+        logging.info('Getting energy with xTB')
+        energy = None
+        command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
+                
+        subprocess.run(command, shell=True, stdout=open("xtblog.txt","w"), stderr=open(os.devnull, 'w'))
+        with open("xtblog.txt", "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                if 'TOTAL ENERGY' in line or 'total energy' in line:
+                    energy = float(line.split()[-3])
+
+        if energy is None:
+            return None
+
+        logging.info('Energy of {} is {} hartree'.format(molecule, energy))
+    return energy 
 
 
 def output_3d_coords(atoms: List[str], atom_coords: List[Tuple[float, float, float]], output_format: str = 'xyz') -> str:
@@ -110,70 +160,25 @@ def output_3d_coords(atoms: List[str], atom_coords: List[Tuple[float, float, flo
             output += '\n' + ' '.join([str(x), str(y), str(z), atom.lower()])
         output += '\n$end\n'
 
-    return output
+    return output   
 
 
-class AimnetCalculator():
+def get_system_energy(smi: str, optimizer: str = 'rdkit', n_attempts=10) -> Optional[float]:
     """
-    Uses the AIMNet-NSE model by Zubatyuk et al to calculate molecular energies with Machine Learning.
-    Reference: https://chemrxiv.org/engage/chemrxiv/article-details/60c75793702a9b15d318cb0c
-    Parts of this code is from the model's associated Github Repo, and the models used were downloaded from the associated Zenodo link.
+    Returns the (potential) energy of the system (given as a smiles string) in eV.
+    Uses xTB (GFN2-xTB) calculations for energy calculation.
+    Geometry optimization is done either by RDKit (ETKDG method) or xTB (GFN2-xTB method).
+    Energy calculations are attempted for n_attempts times. If they all fail, then
+    this function returns None.
     """
+    molecules = smi.split('.')
+    total_energy = 0.0
 
-    def __init__(self, models_base_path: Optional[str] = None):
-        if models_base_path is None:
-            models_base_path = os.path.join(os.path.dirname(__file__), 'aimnet_models')
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.rd_periodic_table = Chem.GetPeriodicTable()
-        self.models = [torch.jit.load(os.path.join(models_base_path, 'aimnet-nse-cv{}.jpt'.format(i))).to(self.device) for i in range(5)]
-
-    def predict(self, data: Dict[str, Tensor], smi: str) -> float:
-        """
-        Predicts the energy of a molecule in tensorial representation
-        Returns DFT calculations for single atom (with SMILES specified in smi)
-        """
-        #from mech_pred.utils import get_orca_energy
-        if data['numbers'].size(dim=1) == 1:
-            # if the molecule is a single atom, use Orca/DFT to calculate the energy since AIMNet doesn't work
-            if smi == '[H+]':
-                return 0.0  # proton has 0 energy
-            # return get_orca_energy(smi, optimizer='rdkit')
-        # change data to have alpha and beta total charge
-        data['charge'] = 0.5 * torch.stack([data['charge'] - data['mult'] + 1, data['charge'] + data['mult'] - 1], dim=-1)
-        return float(np.mean([model(data)['energy'][-1].cpu().numpy() for model in self.models]).tolist())
-
-    def mol2data(self, smi: str, charge: float, mult: float, optimizer: str = 'xtb') -> Dict[str, Tensor]:
-        """
-        Changes a smiles string to the coordinate tensorial representation needed by the model.
-        If optimizer == 'rdkit', then the default rdkit geometry optimization force field is used.
-        If optimizer == 'xtb', then the BFGS method from xtb is used.
-        """
-        atoms, coords = smi_to_coords(smi, optimizer=optimizer)
-        coord = np.array(coords)
-        numbers = np.array([self.rd_periodic_table.GetAtomicNumber(a) for a in atoms])
-        coord = torch.tensor(coord, dtype=torch.float).unsqueeze(0).repeat(1, 1, 1).to(self.device)
-        numbers = torch.tensor(numbers, dtype=torch.long).unsqueeze(0).repeat(1, 1).to(self.device)
-        charge = torch.tensor([charge]).to(self.device)  # cation, neutral, anion
-        mult = torch.tensor([mult]).to(self.device)
-        return dict(coord=coord, numbers=numbers, charge=charge, mult=mult)
-
-    def get_energy(self, smi: str, optimizer: str = 'xtb') -> float:
-        """
-        Returns the energy predicted by AIMNet-NSE on the given molecular system, in eV.
-        If optimizer == 'rdkit', then the default rdkit geometry optimization force field is used.
-        If optimizer == 'xtb', then the BFGS method from xtb is used.
-        """
-
-        molecules = smi.split('.')
-        system_energy = 0.0
-        for molecule in molecules:
-            molecule_charge = Chem.rdmolops.GetFormalCharge(Chem.MolFromSmiles(molecule))
-            num_unpaired_electrons = Descriptors.NumRadicalElectrons(Chem.MolFromSmiles(molecule))
-            logging.info('Calculating AIMNet energy for {}'.format(molecule))
-            spin_multiplicity = num_unpaired_electrons + 1
-            data = self.mol2data(molecule, charge=molecule_charge, mult=spin_multiplicity, optimizer=optimizer)
-            with torch.jit.optimized_execution(False), torch.no_grad():
-                pred = self.predict(data, smi=molecule)
-            system_energy += pred
-        return system_energy
+    for molecule in molecules:
+        molecule_energy = get_molecule_energy(molecule, optimizer=optimizer, n_attempts=n_attempts)
+        if molecule_energy is None:
+            return None
+        else:
+            total_energy += molecule_energy
     
+    return total_energy * HARTREE_TO_EV

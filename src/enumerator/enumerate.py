@@ -6,7 +6,7 @@ from tqdm import tqdm
 from enumerator.Molecule import Molecule
 from enumerator.generate_products import enumerate_reaction_possibilites, generate_products
 #from enumerator.get_energies import AimnetCalculator
-from enumerator.get_energies_alt import get_system_energy
+from enumerator.get_energies import get_system_energy
 
 
 def get_args():
