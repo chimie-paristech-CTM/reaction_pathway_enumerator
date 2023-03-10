@@ -1,33 +1,48 @@
 import argparse
 from tqdm import tqdm
+import logging
 
 from enumerator.Molecule import Molecule
-from enumerator.generate_products import enumerate_reaction_possibilites, generate_products
+from enumerator.generate_products import (
+    enumerate_reaction_possibilities,
+    generate_products,
+)
 from enumerator.get_energies import get_system_energy
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--smiles', action='store', type=str)
-    parser.add_argument('--idx-list', action='store', type=list, default=None)
-    parser.add_argument('--n-bonding-systems', action='store', type=int, default=4)
+    parser.add_argument("--smiles", action="store", type=str)
+    parser.add_argument("--idx-list", nargs="+", default=None)
+    parser.add_argument("--n-bonding-systems", action="store", type=int, default=4)
     return parser.parse_args()
 
 
 def get_thermodynamically_feasible_products():
-    """ Returns a list of feasible product molecules based on the SMILES input. """
+    """Returns a list of feasible product molecules based on the SMILES input."""
     args = get_args()
-    products = enumerate_potential_products(args.smiles, args.idx_list, args.n_bonding_systems)
+    logging.basicConfig(
+        filename=f"{args.smiles}.log", encoding="utf-8", level=logging.DEBUG
+    )
+    products = enumerate_potential_products(
+        args.smiles, args.idx_list, args.n_bonding_systems
+    )
     product_energies_dict = get_energy_dict(args.smiles, products)
 
-    feasible_products_dict = dict((k, product_energies_dict[k]) for k in product_energies_dict.keys() if product_energies_dict[k] < 0)
-    
+    logging.info(product_energies_dict)
+    logging.info(len(product_energies_dict))
+    feasible_products_dict = dict(
+        (k, product_energies_dict[k])
+        for k in product_energies_dict.keys()
+        if product_energies_dict[k] < 0
+    )
+
     print(feasible_products_dict)
     print(len(feasible_products_dict))
 
 
 def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
-    """ Enumerates all the potential products based on either an index list or a number of bonding systems.
+    """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
         smiles (str): A SMILES string
@@ -39,17 +54,17 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     """
     mol = Molecule(smiles)
     if idx_list:
-        products = generate_products(mol, idx_list)
+        products = generate_products(mol, list(map(int, idx_list)))
     elif n_bonding_systems:
-        products = enumerate_reaction_possibilites(mol, n_bonding_systems)
+        products = enumerate_reaction_possibilities(mol, n_bonding_systems)
 
-    products = list(set(products)) 
+    products = list(set(products))
 
     return products
 
 
 def get_energy_dict(reactants, products):
-    """ Obtains a dictionary of relative product energies.
+    """Obtains a dictionary of relative product energies.
 
     Args:
         reactants (str): SMILES string corresponding to the reactants.
