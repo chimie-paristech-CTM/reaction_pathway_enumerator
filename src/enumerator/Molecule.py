@@ -201,7 +201,10 @@ class Molecule:
             atom_1 = bond.GetBeginAtomIdx()
             atom_2 = bond.GetEndAtomIdx()
             num_bonds = round(bond.GetBondTypeAsDouble())
-            initial_bonds[atom_1] = initial_bonds.get(atom_1, []) + [atom_2] * num_bonds
+            if atom_1 < atom_2:
+                initial_bonds[atom_1] = initial_bonds.get(atom_1, []) + [atom_2] * num_bonds
+            else:
+                initial_bonds[atom_2] = initial_bonds.get(atom_2, []) + [atom_1] * num_bonds
 
         # construct all the bonding systems
         bonding_system_idx = 0

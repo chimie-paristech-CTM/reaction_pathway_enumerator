@@ -298,11 +298,11 @@ def generate_products(molecule: "Molecule", idx_list: list):
     for arrangment in bonding_system_arrangments:
         new_bonding_systems = modify_bonding_systems(arrangment)
         if new_bonding_systems != None:
-            products.append(
-                generate_smiles(
+            smiles = generate_smiles(
                     molecule.orig_molecule, old_bonding_systems, new_bonding_systems
                 )
-            )
+            if smiles != None:
+                products.append(smiles)
             if reaction_type == "concerted":
                 # also take non-concerted pathway into account
                 new_bonding_systems_mod = copy.deepcopy(new_bonding_systems)
@@ -319,13 +319,7 @@ def generate_products(molecule: "Molecule", idx_list: list):
                     new_bonding_systems_mod_diradical,
                 )
                 if smiles != None:
-                    products.append(
-                        generate_smiles(
-                            molecule.orig_molecule,
-                            old_bonding_systems,
-                            new_bonding_systems_mod_diradical,
-                        )
-                    )
+                    products.append(smiles)
                 # zwitter (this will not always make sense -> if a single molecule you can't distinguish between zwitter and diradical)
                 new_bonding_systems_mod[-1].set_polarity()
                 final_bonding_systems_zwitter = split_single_bonding_system(
@@ -340,13 +334,7 @@ def generate_products(molecule: "Molecule", idx_list: list):
                     new_bonding_systems_mod_zwitter,
                 )
                 if smiles != None:
-                    products.append(
-                        generate_smiles(
-                            molecule.orig_molecule,
-                            old_bonding_systems,
-                            new_bonding_systems_mod_zwitter,
-                        )
-                    )
+                    products.append(smiles)
 
     return products
 

@@ -40,6 +40,9 @@ def get_thermodynamically_feasible_products():
     print(feasible_products_dict)
     print(len(feasible_products_dict))
 
+    #print(len(product_energies_dict))
+    #print(product_energies_dict)
+
 
 def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
