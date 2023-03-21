@@ -114,13 +114,17 @@ def generate_smiles(orig_mol, old_bonding_systems, new_bonding_systems):
 
     # check if 2 neighbors carry radicals/charges, if so, don't return anything:
     for atom in editable_molecule.GetAtoms():
-        if atom.GetNumRadicalElectrons() == 1:
+        if atom.GetNumRadicalElectrons() != 0:
             for neighbor in atom.GetNeighbors():
-                if neighbor.GetNumRadicalElectrons() == 1:
+                if neighbor.GetNumRadicalElectrons() != 0:
                     return None
-        if atom.GetFormalCharge() == 1 or atom.GetFormalCharge() == -1:
+        if atom.GetFormalCharge() != 0:
             for neighbor in atom.GetNeighbors():
-                if neighbor.GetFormalCharge() == 1 or neighbor.GetFormalCharge() == -1:
+                if neighbor.GetFormalCharge() != 0:
                     return None
+
+    # if 1 atom carries both a lone pair and an empty orbital, sanitization will add Hs -> you don't want that!      
+    if len(editable_molecule.GetAtoms()) != len(Chem.AddHs(Chem.MolFromSmiles(Chem.MolToSmiles(editable_molecule))).GetAtoms()):
+        return None
 
     return Chem.MolToSmiles(editable_molecule)

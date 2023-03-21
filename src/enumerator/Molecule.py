@@ -116,7 +116,7 @@ class BondingSystem:
         """
         if len(self.vos) > 1:
             electronegativity_list = [electro_dict[vo.atom_type] for vo in self.vos]
-            if max(electronegativity_list) - min(electronegativity_list) >= 0.395:
+            if max(electronegativity_list) - min(electronegativity_list) >= 10.395:
                 self.vos = [
                     self.vos[np.argmax(electronegativity_list)],
                     self.vos[np.argmin(electronegativity_list)],

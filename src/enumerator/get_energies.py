@@ -121,7 +121,7 @@ def get_molecule_energy(
         return get_molecule_energy(canonical_smi, optimizer=optimizer, solvent=solvent)
     mol = Chem.AddHs(mol)
 
-    if canonical_smi == "[H+]":
+    if molecule == "[H+]":
         return 0.0
 
     if len(mol.GetAtoms()) == 1:
@@ -220,5 +220,5 @@ def get_system_energy(
         else:
             total_energy += molecule_energy
 
-    #shutil.rmtree("tmp_{}".format(os.getpid()))
+    shutil.rmtree("tmp_{}".format(os.getpid()))
     return total_energy
