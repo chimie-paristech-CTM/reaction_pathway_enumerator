@@ -10,10 +10,14 @@ from enumerator.generate_products import (
 from enumerator.get_energies import get_system_energy
 
 
+HARTREE_TO_EV = 27.2114
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--smiles", action="store", type=str)
     parser.add_argument("--idx-list", nargs="+", default=None)
+    parser.add_argument("--solvent", action="store", default=None)
     parser.add_argument("--n-bonding-systems", action="store", type=int, default=4)
     return parser.parse_args()
 
@@ -27,7 +31,7 @@ def get_thermodynamically_feasible_products():
     products = enumerate_potential_products(
         args.smiles, args.idx_list, args.n_bonding_systems
     )
-    product_energies_dict = get_energy_dict(args.smiles, products)
+    product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
 
     logging.info(product_energies_dict)
     logging.info(len(product_energies_dict))
@@ -43,6 +47,11 @@ def get_thermodynamically_feasible_products():
     #print(len(product_energies_dict))
     #print(product_energies_dict)
 
+def get_energy():
+    """Returns the energy of a system corresponding to a SMILES string."""
+    args = get_args()
+    energy = get_system_energy(args.smiles, solvent=args.solvent)
+    print(energy)
 
 def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
@@ -66,19 +75,20 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     return products
 
 
-def get_energy_dict(reactants, products):
+def get_energy_dict(reactants, products, solvent):
     """Obtains a dictionary of relative product energies.
 
     Args:
         reactants (str): SMILES string corresponding to the reactants.
         products (str): SMILES string corresponding to the products.
+        solvent (str): SMILES string corresponding to the solvent.
 
     Returns:
         dict: a dictionary of SMILES and their corresponding energies.
     """
     energy_dict = {}
-    reactant_energy = get_system_energy(reactants)
+    reactant_energy = get_system_energy(reactants, solvent=solvent)
     for product in tqdm(products, total=len(products)):
-        energy_dict[product] = get_system_energy(product) - reactant_energy
+        energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_EV
 
     return energy_dict

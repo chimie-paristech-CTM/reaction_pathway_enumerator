@@ -3,10 +3,6 @@ from enumerator.enumerate import get_thermodynamically_feasible_products
 import logging
 import time
 
-# mol = Molecule('CCCC(=O)OC(=O)N.C#N')
-# mol = Molecule('C.C#[N+2]')
-# mol = Molecule('F')
-
 if __name__ == "__main__":
     start_time = time.time()
     get_thermodynamically_feasible_products()

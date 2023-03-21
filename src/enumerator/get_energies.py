@@ -6,11 +6,10 @@ import shutil
 from typing import List, Tuple, Optional
 import logging
 import subprocess
+import re
 
 import contextlib
 from pathlib import Path
-
-HARTREE_TO_EV = 27.2114
 
 
 @contextlib.contextmanager
@@ -28,7 +27,7 @@ def make_tmp_directory():
 
 
 def mol_to_coords(
-    mol: "Chem.Mol", smi: str, optimizer: str = "rdkit"
+    mol: "Chem.Mol", smi: str, optimizer: str = "rdkit", solvent: str = None
 ) -> Tuple[List[str], List[Tuple[float, float, float]]]:
     """
     Returns the atoms and coordinates of a molecule as arrays.
@@ -69,9 +68,10 @@ def mol_to_coords(
             with open("tmp.xyz", "w") as f:
                 f.write(xyzfile)
 
-            command = "xtb tmp.xyz --opt normal --gfn 2 --chrg {} --uhf {}".format(
-                charge, num_unpaired_electrons
-            )
+            if solvent != None:
+                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent}"
+            else:
+                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
             subprocess.check_call(
                 command.split(),
                 stdout=open("xtblog.txt", "w"),
@@ -106,7 +106,7 @@ def mol_to_coords(
 
 
 def get_molecule_energy(
-    molecule: str, optimizer: str = "rdkit", n_attempts=10
+    molecule: str, optimizer: str = "rdkit", solvent: str = None
 ) -> Optional[float]:
     """
     Returns the (potential) energy of a single molecule (given as a smiles string) in hartree.
@@ -118,7 +118,7 @@ def get_molecule_energy(
     mol = Chem.MolFromSmiles(molecule)
     canonical_smi = Chem.MolToSmiles(mol, canonical=True)
     if canonical_smi != molecule:
-        return get_molecule_energy(canonical_smi, optimizer=optimizer)
+        return get_molecule_energy(canonical_smi, optimizer=optimizer, solvent=solvent)
     mol = Chem.AddHs(mol)
 
     if canonical_smi == "[H+]":
@@ -128,7 +128,7 @@ def get_molecule_energy(
         atoms, atom_coords = [mol.GetAtoms()[0].GetSymbol()], [(0.0, 0.0, 0.0)]
     else:
         try:
-            atoms, atom_coords = mol_to_coords(mol, molecule, optimizer=optimizer)
+            atoms, atom_coords = mol_to_coords(mol, molecule, optimizer=optimizer, solvent=solvent)
         except Exception as e:
             logging.warning("{} in xTB geometry opt for {}".format(e, molecule))
             return None
@@ -142,7 +142,10 @@ def get_molecule_energy(
             f.write(xyzfile)
 
         energy = None
-        command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
+        if solvent != None:
+            command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent}"
+        else:
+            command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
 
         subprocess.run(
             command,
@@ -150,11 +153,16 @@ def get_molecule_energy(
             stdout=open("xtblog.txt", "w"),
             stderr=open(os.devnull, "w"),
         )
-        with open("xtblog.txt", "r") as f:
+        with open("xtblog.txt", "rb") as f:
             lines = f.readlines()
-            for line in lines:
-                if "TOTAL ENERGY" in line or "total energy" in line:
-                    energy = float(line.split()[-3])
+            for line in reversed(lines):
+                try:
+                    current_line = line.decode("utf-8")
+                except:
+                    continue
+                if "TOTAL ENERGY" in current_line or ":: total energy" in current_line:
+                    energy = float(current_line.split()[-3])
+                    break
 
         if energy is None:
             return None
@@ -191,7 +199,7 @@ def output_3d_coords(
 
 
 def get_system_energy(
-    smi: str, optimizer: str = "rdkit", n_attempts=10
+    smi: str, optimizer: str = "rdkit", solvent: str = None
 ) -> Optional[float]:
     """
     Returns the (potential) energy of the system (given as a smiles string) in eV.
@@ -205,12 +213,12 @@ def get_system_energy(
 
     for molecule in molecules:
         molecule_energy = get_molecule_energy(
-            molecule, optimizer=optimizer, n_attempts=n_attempts
+            molecule, optimizer=optimizer, solvent=solvent
         )
         if molecule_energy is None:
             return None
         else:
             total_energy += molecule_energy
 
-    shutil.rmtree("tmp_{}".format(os.getpid()))
-    return total_energy * HARTREE_TO_EV
+    #shutil.rmtree("tmp_{}".format(os.getpid()))
+    return total_energy
