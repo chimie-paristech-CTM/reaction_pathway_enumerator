@@ -4,6 +4,7 @@ from enumerator.generate_smiles import generate_smiles
 import itertools
 from tqdm import tqdm
 import logging
+from rdkit import Chem
 
 
 def determine_reaction_type(bonding_system_init):
@@ -95,6 +96,8 @@ def enumerate_reaction_possibilities(molecule: "Molecule", max_length: int):
     logging.info(len(active_bonding_system_ids))
 
     all_products = []
+    all_products_no_atom_map = []
+
     for L in range(1, max_length + 1):
         print(
             f"Generating all products for combinations of up to {L} bonding systems..."
@@ -106,9 +109,23 @@ def enumerate_reaction_possibilities(molecule: "Molecule", max_length: int):
             for idx_perm in itertools.permutations(idx_comb):
                 generated_products = generate_products(molecule, list(idx_perm))
                 if generated_products != None:
-                    all_products += generated_products
+                    for generated_product in generated_products:
+                        generated_product_no_atom_map = remove_atom_mapping(generated_product)
+                        if generated_product_no_atom_map in all_products_no_atom_map:
+                            continue
+                        else:
+                            all_products.append(generated_product)
+                            all_products_no_atom_map.append(generated_product_no_atom_map)
 
     return all_products
+
+
+def remove_atom_mapping(smiles):
+    """ Remove atom map numbers for all atoms in a SMILES string. """
+    mol = Chem.MolFromSmiles(smiles)
+    [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
+
+    return Chem.MolToSmiles(mol)
 
 
 def split_single_bonding_system(old_bonding_system, num_electrons, population_first_vo):

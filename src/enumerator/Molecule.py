@@ -156,17 +156,20 @@ class Molecule:
 
     def __init__(self, smi: str):
         self.smi = smi
-        self.orig_molecule = Chem.MolFromSmiles(smi)
-        self.orig_molecule = Chem.AddHs(
-            self.orig_molecule
-        )  # always add H's to make bonding correct
-        Chem.Kekulize(
-            self.orig_molecule
-        )  # change to kekulized smiles to remove aromatic bonds
+        self.orig_molecule = self.get_mol(smi)
         self.num_atoms = self.orig_molecule.GetNumAtoms()
 
         self.atoms = self.get_atoms()
         self.bonding_systems = self.get_bonding_systems()
+
+    def get_mol(self, smi):
+        """Get mol object with hydrogens, fully atom mappped and kekulized """
+        mol = Chem.MolFromSmiles(smi)
+        mol = Chem.AddHs(mol)  # always add H's to make bonding correct
+        Chem.Kekulize(mol) # change to kekulized smiles to remove aromatic bonds
+        [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
+        
+        return mol
 
     def get_atoms(self):
         """Process rdkit_atoms, add them to the editable version of the molecule, and create Atom objects."""
