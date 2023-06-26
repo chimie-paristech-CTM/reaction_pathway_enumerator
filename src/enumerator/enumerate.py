@@ -44,14 +44,16 @@ def get_thermodynamically_feasible_products():
     print(feasible_products_dict)
     print(len(feasible_products_dict))
 
-    #print(len(product_energies_dict))
+    print(len(product_energies_dict))
     #print(product_energies_dict)
+
 
 def get_energy():
     """Returns the energy of a system corresponding to a SMILES string."""
     args = get_args()
     energy = get_system_energy(args.smiles, solvent=args.solvent)
     print(energy)
+
 
 def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
@@ -89,6 +91,9 @@ def get_energy_dict(reactants, products, solvent):
     energy_dict = {}
     reactant_energy = get_system_energy(reactants, solvent=solvent)
     for product in tqdm(products, total=len(products)):
-        energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_EV
+        try:
+            energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_EV
+        except TypeError:
+            continue
 
     return energy_dict
