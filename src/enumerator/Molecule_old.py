@@ -171,12 +171,11 @@ class OrbitalSystem:
 
 
 class OrbitalSystemGraph:
-    """ A class corresponding to an abstract graph, where nodes correspond to orbital systems, and edges correspond to potential (intrafragment) interactions. """
+    """ A class corresponding to an abstract graph, where nodes correspond to orbital systems, and edges correspond to potential interactions. """
 
     def __init__(self):
         self.potential_interaction_list = {}
         self.xh_orbital_systems = set()
-
 
     def add_orbital_system(self, orbital_system):
         if orbital_system not in self.potential_interaction_list:
@@ -218,7 +217,7 @@ class Molecule:
 
         self.orbital_system_graph = OrbitalSystemGraph()
         self.add_orbital_systems_to_graph()
-        self.add_potential_intrafragment_interactions_to_graph()
+        self.add_potential_interactions_to_graph()
 
     def parse_smiles(self, smiles):
         """Get mol object with hydrogens, fully numbered and kekulized """
@@ -313,7 +312,7 @@ class Molecule:
     
         return active_orbital_systems
 
-    def add_potential_intrafragment_interactions_to_graph(self):
+    def add_potential_interactions_to_graph(self):
         # first determine which atoms belong to which fragment of the molecular system
         atom_to_fragment_dict = self.determine_atom_to_fragment_dict()
         # also get the neighbors for every atom
@@ -325,18 +324,17 @@ class Molecule:
             atom_idx1 = orbital_system.get_atoms()
 
             for candidate_interaction_partner in self.active_orbital_systems:
-                # we only consider intrafragment interactions, and only consider atoms that are adjacent
-                if owning_fragment == atom_to_fragment_dict[candidate_interaction_partner.vos[0].atom_idx]:
-                    atom_idx2 = candidate_interaction_partner.get_atoms()                    
-                    if bool(set(set(atom_idx1) & set(atom_idx2))): # no overlap
-                        continue
+                # if different fragment, add interaction
+                if owning_fragment != atom_to_fragment_dict[candidate_interaction_partner.vos[0].atom_idx]:
+                    self.orbital_system_graph.add_potential_interaction(orbital_system, candidate_interaction_partner)
+                else:
+                    # on same fragment, the atoms need to be adjacent
+                    atom_idx2 = candidate_interaction_partner.get_atoms()
                     for idx in atom_idx1:
                         if bool(set(neighbors_dict[idx]) & set(atom_idx2)): # if any of the idx in the candidate partner is in neighbor set => adjacent orbital systems
                             self.orbital_system_graph.add_potential_interaction(orbital_system, candidate_interaction_partner)
                         else:
                             continue
-                else:
-                    continue
 
     def construct_orbital_system_paths(self, max_length:int):
         all_paths = []
@@ -357,15 +355,6 @@ class Molecule:
                             new_path = path.copy()
                             new_path.append(neighbor)
                             all_paths.append(new_path)
-
-        all_paths = remove_duplicates(all_paths)
-
-        print(self.numbered_smiles)
-        for path in all_paths:
-            print(path)
-
-        print(len(all_paths))
-        raise KeyError
 
         # finish the path construction by adding endpoints if they are not already there
         for path in all_paths[previous_length:]:
@@ -409,16 +398,6 @@ class Molecule:
         for orbital_system in self.orbital_systems:
             self.orbital_system_graph.add_orbital_system(orbital_system)
 
-
-
-def remove_duplicates(input_list):
-    unique_list = []
-    tmp_list = []
-    for item in input_list:
-        if set(item) not in tmp_list:
-            unique_list.append(item)
-            tmp_list.append(set(item))
-    return unique_list
 
 
 

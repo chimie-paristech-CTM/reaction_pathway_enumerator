@@ -10,19 +10,12 @@ from rdkit import Chem
 def generate_promotion_states(molecule_system: "MoleculeSystem", max_length: int):
     promoted_states = [[] for i in range(len(molecule_system.individual_molecules))]
 
-    # set polarity of all the bonding systems
-    set_polarization_bonding_systems(molecule.bonding_systems)
-
-    # save a copy of the bonding systems being modified
-    old_bonding_systems = copy.deepcopy(molecule.bonding_systems)
-
     for i, molecule in enumerate(molecule_system.individual_molecules):
         all_bonding_systems = molecule.get_bonding_systems(molecule_system.atom_to_bonding_systems_dict, molecule_system.bonding_systems)
         active_bonding_systems = select_active_bonding_systems(all_bonding_systems)
         for active_bonding_system in active_bonding_systems:
             bonding_system_init = active_bonding_system
-            #reaction_type = determine_reaction_type(bonding_system_init)
-            
+
         
 
 

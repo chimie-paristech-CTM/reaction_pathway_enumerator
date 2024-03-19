@@ -1,7 +1,7 @@
 Metadata-Version: 2.1
 Name: enumerator
 Version: -version.number-.0.0.1
-Summary: Property prediction
+Summary: Enumeration of potential products based on an initial SMILES string
 Author: Thijs Stuyver
 License: MIT
 Platform: UNKNOWN

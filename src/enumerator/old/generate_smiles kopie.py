@@ -14,6 +14,7 @@ def generate_smiles(orig_mol, old_bonding_systems, new_bonding_systems):
     """
     editable_molecule = Chem.RWMol(orig_mol)  # editable version of the molecule
 
+    # adjust charges and spin on atoms based on information from the original state of the vos
     for bonding_system in old_bonding_systems:
         if len(bonding_system) == 1:
             init_charge = editable_molecule.GetAtomWithIdx(
@@ -60,7 +61,7 @@ def generate_smiles(orig_mol, old_bonding_systems, new_bonding_systems):
                     bonding_system.vos[1].atom_idx,
                     Chem.rdchem.BondType.DOUBLE,
                 )
-
+    # adjust charges and spin on atoms based on information from the updated state of the vos
     for bonding_system in new_bonding_systems:
         if len(bonding_system) == 1:
             init_charge = editable_molecule.GetAtomWithIdx(

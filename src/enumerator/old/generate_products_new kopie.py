@@ -7,45 +7,6 @@ import logging
 from rdkit import Chem
 
 
-def generate_promotion_states(molecule_system: "MoleculeSystem", max_length: int):
-    promoted_states = [[] for i in range(len(molecule_system.individual_molecules))]
-
-    # set polarity of all the bonding systems
-    set_polarization_bonding_systems(molecule.bonding_systems)
-
-    # save a copy of the bonding systems being modified
-    old_bonding_systems = copy.deepcopy(molecule.bonding_systems)
-
-    for i, molecule in enumerate(molecule_system.individual_molecules):
-        all_bonding_systems = molecule.get_bonding_systems(molecule_system.atom_to_bonding_systems_dict, molecule_system.bonding_systems)
-        active_bonding_systems = select_active_bonding_systems(all_bonding_systems)
-        for active_bonding_system in active_bonding_systems:
-            bonding_system_init = active_bonding_system
-            #reaction_type = determine_reaction_type(bonding_system_init)
-            
-        
-
-
-def select_active_bonding_systems(bonding_systems):
-    active_bonding_systems = set()
-    already_covered = set()
-    for bonding_system in bonding_systems:
-        system_info = f'{bonding_system.num_electrons}, {set(bonding_system.get_atoms())}'
-        if system_info not in already_covered:
-            already_covered.add(system_info)
-            active_bonding_systems.add(bonding_system)
-    
-    return active_bonding_systems
-        
-
-
-
-
-
-
-
-
-
 def determine_reaction_type(bonding_system_init):
     """
     Determines the reaction type based on the nature of the initial bonding system.
@@ -67,7 +28,6 @@ def determine_reaction_type(bonding_system_init):
             return "nucleophilic"
     else:
         print("Not yet implemented!")
-        return None
 
 
 def set_polarization_bonding_systems(bonding_systems):
@@ -103,6 +63,69 @@ def construct_new_bonding_system(vo1, vo2, idx=-1):
 
 
 def enumerate_reaction_possibilities(molecule: "Molecule", max_length: int):
+    active_lone_pairs = []
+    active_bonding_pairs = []
+    active_empty_valences = []
+    active_radical_sites = [] # TODO: add this
+
+    # heuristics to reduce number of possibilities -> only one lone pair and one X-H bond per atom
+    # + only one interatomic bonding system if multiple
+    atoms_with_lone_pairs_covered = []
+    atoms_with_empty_valences_covered = []
+    atoms_with_xh_covered = []
+    atom_pairs_covered = []
+
+    # select active vos
+    for bonding_system in molecule.bonding_systems:
+        logging.info(bonding_system)
+        if bonding_system.is_lone_pair():
+            if bonding_system.get_heavy_atoms()[0] in atoms_with_lone_pairs_covered:
+                continue
+            else:
+                active_lone_pairs.append(bonding_system.idx)
+                atoms_with_lone_pairs_covered.append(
+                    bonding_system.get_heavy_atoms()[0]
+                )
+        elif bonding_system.is_empty_valence():
+            if bonding_system.get_heavy_atoms()[0] in atoms_with_empty_valences_covered:
+                continue
+            else:
+                active_empty_valences.append(bonding_system.idx)
+                atoms_with_empty_valences_covered.append(
+                    bonding_system.get_heavy_atoms()[0]
+                )
+        else:
+            if bonding_system.is_xh_bond():
+                if bonding_system.get_heavy_atoms()[0] in atoms_with_lone_pairs_covered:
+                    continue
+                else:
+                    active_bonding_pairs.append(bonding_system.idx)
+                    atoms_with_xh_covered.append(bonding_system.get_heavy_atoms()[0])
+            elif bonding_system.get_heavy_atoms() in atom_pairs_covered:
+                continue
+            else:
+                active_bonding_pairs.append(bonding_system.idx)
+                atom_pairs_covered.append(bonding_system.get_heavy_atoms()[0])
+
+    # go through all the possibilities
+    # first go through nucleophilic pathways
+    pathways = []
+    for lone_pair in active_bonding_pairs:
+        
+        itertools.combinations(active_bonding_system_ids, L)
+
+
+        for L in range(1, max_length):
+            itertools.combinations(active_bonding_system_ids, L)
+            
+
+            
+            
+
+    
+    
+    
+    
     active_bonding_system_ids = []
     # heuristics to reduce number of possibilities -> only one lone pair and one X-H bond per atom
     # + only one interatomic bonding system if multiple
