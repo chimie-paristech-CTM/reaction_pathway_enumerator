@@ -55,10 +55,9 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
         list: A list of product SMILES.
     """
     mol = Molecule(smiles)
-    paths = mol.construct_orbital_system_paths(4)
-    print(len(paths))
-    for path in paths:
-        print(path)
+    paths = mol.construct_reaction_paths(2)
+    mol.modify_reaction_paths(paths)
+    
     #generate_promotion_states(mol, 3)
 
 

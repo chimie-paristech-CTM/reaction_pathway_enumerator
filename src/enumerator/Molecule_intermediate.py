@@ -2,10 +2,6 @@ from typing import Dict, List
 from rdkit import Chem
 import numpy as np
 import re
-from itertools import permutations, product
-from tqdm import tqdm
-from enumerator.generate_smiles import generate_smiles
-from copy import deepcopy
 
 
 ps = Chem.SmilesParserParams()
@@ -175,63 +171,36 @@ class OrbitalSystem:
 
 
 class OrbitalSystemGraph:
-    """ A class corresponding to an abstract graph, where nodes correspond to orbital systems, and edges correspond to potential (intra-/interfragment) interactions. """
+    """ A class corresponding to an abstract graph, where nodes correspond to orbital systems, and edges correspond to potential (intrafragment) interactions. """
 
     def __init__(self):
-        self.potential_intrafragment_interaction_list = {}
-        self.potential_interfragment_interaction_list = {}
-        self.potential_interfragment_path_ending_interaction_list = {}
+        self.potential_interaction_list = {}
         self.xh_orbital_systems = set()
 
 
     def add_orbital_system(self, orbital_system):
-        if orbital_system not in self.potential_intrafragment_interaction_list:
-            self.potential_intrafragment_interaction_list[orbital_system] = []
-        if orbital_system not in self.potential_interfragment_interaction_list:
-            self.potential_interfragment_interaction_list[orbital_system] = []
-        if orbital_system not in self.potential_interfragment_path_ending_interaction_list:
-            self.potential_interfragment_path_ending_interaction_list[orbital_system] = []
-        if orbital_system.is_xh_bond() and orbital_system not in self.xh_orbital_systems:
-            self.xh_orbital_systems.add(orbital_system)
+        if orbital_system not in self.potential_interaction_list:
+            self.potential_interaction_list[orbital_system] = []
+            if orbital_system.is_xh_bond():
+                self.xh_orbital_systems.add(orbital_system)
+            elif orbital_system.is_lone_pair():
+                self.lone_pairs.add(orbital_system)
+            elif orbital_system.is_empty_valence():
+                self.empty_valences.add(orbital_system)
     
-    def add_potential_intrafragment_interaction(self, source, destination):
-        if source in self.potential_intrafragment_interaction_list and destination in self.potential_intrafragment_interaction_list \
-            and destination not in self.potential_intrafragment_interaction_list[source]:
-            self.potential_intrafragment_interaction_list[source].append(destination)
-
-    def add_potential_interfragment_interaction(self, source, destination):
-        if source in self.potential_interfragment_interaction_list and destination in self.potential_interfragment_interaction_list \
-            and destination not in self.potential_interfragment_interaction_list[source]:
-            self.potential_interfragment_interaction_list[source].append(destination)
+    def add_potential_interaction(self, source, destination):
+        if source in self.potential_interaction_list and destination in self.potential_interaction_list and destination not in self.potential_interaction_list[source]:
+            self.potential_interaction_list[source].append(destination)
     
-    def add_potential_interfragment_path_ending_interaction(self, source, destination):
-        if source in self.potential_interfragment_path_ending_interaction_list and destination in self.potential_interfragment_path_ending_interaction_list \
-            and destination not in self.potential_interfragment_path_ending_interaction_list[source]:
-            self.potential_interfragment_path_ending_interaction_list[source].append(destination)
-    
-    def get_intrafragment_neighbors(self, orbital_system, with_xh=True):
+    def get_neighbors(self, orbital_system, with_xh=True):
         if with_xh == True:
-            return self.potential_intrafragment_interaction_list.get(orbital_system, []) # TODO: refine this!!!!
+            return self.potential_interaction_list.get(orbital_system, []) # TODO: refine this!!!!
         else:
-            neighbors = self.potential_intrafragment_interaction_list.get(orbital_system, [])
-            return  [neighbor for neighbor in neighbors if neighbor not in self.xh_orbital_systems] 
-        
-    def get_interfragment_neighbors(self, orbital_system, with_xh=True):
-        if with_xh == True:
-            return self.potential_interfragment_interaction_list.get(orbital_system, []) # TODO: refine this!!!!
-        else:
-            neighbors = self.potential_interfragment_interaction_list.get(orbital_system, [])
-            return  [neighbor for neighbor in neighbors if neighbor not in self.xh_orbital_systems] 
-
-    def get_interfragment_path_ending_neighbors(self, orbital_system, with_xh=True):
-        if with_xh == True:
-            return self.potential_interfragment_path_ending_interaction_list.get(orbital_system, []) # TODO: refine this!!!!
-        else:
-            neighbors = self.potential_interfragment_path_ending_interaction_list.get(orbital_system, [])
+            neighbors = self.potential_interaction_list.get(orbital_system, [])
             return  [neighbor for neighbor in neighbors if neighbor not in self.xh_orbital_systems] 
 
     def __str__(self) -> str:
-        return f'intra: {self.potential_intrafragment_interaction_list}; inter:{self.potential_interfragment_interaction_list}'
+        return f'{self.potential_interaction_list}'
 
 
 # TODO: delocalization???
@@ -243,14 +212,13 @@ class Molecule:
         
         self.num_atoms = self.orig_mol.GetNumAtoms()
         self.atoms = self.get_atoms()
-        self.atom_to_fragment_dict = self.determine_atom_to_fragment_dict()
 
         self.orbital_systems = self.get_orbital_systems() # TODO: set polarity always???
         self.active_orbital_systems = self.select_active_orbital_systems()
 
         self.orbital_system_graph = OrbitalSystemGraph()
         self.add_orbital_systems_to_graph()
-        self.add_potential_interactions_to_graph()
+        self.add_potential_intrafragment_interactions_to_graph()
 
     def parse_smiles(self, smiles):
         """Get mol object with hydrogens, fully numbered and kekulized """
@@ -335,151 +303,93 @@ class Molecule:
         return orbital_systems 
 
     def select_active_orbital_systems(self):
-        """ Only keep 1 orbital system of a triple/double bond, and only keep 1 X-H bond for every atom X """
         active_orbital_systems = set()
         already_covered_systems = set()
         for orbital_system in self.orbital_systems:
-            system_info = f'{orbital_system.num_electrons}, {set(orbital_system.get_heavy_atoms())}'
+            system_info = f'{orbital_system.num_electrons}, {set(orbital_system.get_atoms())}'
             if system_info not in already_covered_systems:
                 already_covered_systems.add(system_info)
                 active_orbital_systems.add(orbital_system)
     
         return active_orbital_systems
 
-    def add_potential_interactions_to_graph(self):
-        """ Add potential inter- and intrafragment interactions to the orbital system graph. """
-        # get the neighbors for every atom
+    def add_potential_intrafragment_interactions_to_graph(self):
+        # first determine which atoms belong to which fragment of the molecular system
+        atom_to_fragment_dict = self.determine_atom_to_fragment_dict()
+        # also get the neighbors for every atom
         neighbors_dict = self.get_neighbors_dict()
 
         # now construct all the interactions
         for orbital_system in self.active_orbital_systems:
-            owning_fragment = self.atom_to_fragment_dict[orbital_system.vos[0].atom_idx]
+            owning_fragment = atom_to_fragment_dict[orbital_system.vos[0].atom_idx]
             atom_idx1 = orbital_system.get_atoms()
 
             for candidate_interaction_partner in self.active_orbital_systems:
-                # if intrafragment interactions, we only consider atoms that are adjacent
-                if owning_fragment == self.atom_to_fragment_dict[candidate_interaction_partner.vos[0].atom_idx]:
-                    atom_idx2 = candidate_interaction_partner.get_atoms()                   
+                # we only consider intrafragment interactions, and only consider atoms that are adjacent
+                if owning_fragment == atom_to_fragment_dict[candidate_interaction_partner.vos[0].atom_idx]:
+                    atom_idx2 = candidate_interaction_partner.get_atoms()                    
                     if bool(set(set(atom_idx1) & set(atom_idx2))): # no overlap
                         continue
                     for idx in atom_idx1:
                         if bool(set(neighbors_dict[idx]) & set(atom_idx2)): # if any of the idx in the candidate partner is in neighbor set => adjacent orbital systems
-                            self.orbital_system_graph.add_potential_intrafragment_interaction(orbital_system, candidate_interaction_partner)
+                            self.orbital_system_graph.add_potential_interaction(orbital_system, candidate_interaction_partner)
                         else:
                             continue
-                # for interfragment interactions, we distinguish with path ending, and regular interfragment interactions
                 else:
-                    if len(atom_idx2) > 1:
-                        self.orbital_system_graph.add_potential_interfragment_interaction(orbital_system, candidate_interaction_partner)
-                    else:
-                        self.orbital_system_graph.add_potential_interfragment_path_ending_interaction(orbital_system, candidate_interaction_partner)
+                    continue
 
-    def construct_reaction_paths(self, max_length):
-        # start by generating all the intrafragment paths
-        all_intrafragment_paths = [[] for _ in self.numbered_smiles.split('.')]
+    def construct_orbital_system_paths(self, max_length:int):
+        all_paths = []
         # first, get all the paths consisting of a single orbital system
         for orbital_system in self.active_orbital_systems:
-            all_intrafragment_paths[self.atom_to_fragment_dict[orbital_system.get_atoms()[0]]].append([orbital_system])
+            all_paths.append([orbital_system])
 
         # iterate through the paths, if no "natural" end-point, i.e., a single VO or a neighbor of the first orbital system, is reached, 
         # then continue appending orbital systems
-        for fragment_paths in all_intrafragment_paths:
-            previous_length = 0
-            for _ in range(max_length-1):
-                paths_to_extend = fragment_paths[previous_length:]
-                previous_length = len(fragment_paths)
-                for path in paths_to_extend:
-                    if len(path[-1].vos) > 1: # and not path[0] in self.orbital_system_graph.get_neighbors(path[-1]): # TODO: this would stop everytime you add a second neighbor
-                        for neighbor in self.orbital_system_graph.get_intrafragment_neighbors(path[-1]):
-                            if neighbor not in path:
-                                new_path = deepcopy(path)
-                                new_path.append(neighbor)
-                                fragment_paths.append(new_path)
+        previous_length = 0
+        for _ in range(max_length-2):
+            paths_to_extend = all_paths[previous_length:]
+            previous_length = len(all_paths)
+            for path in paths_to_extend:
+                if len(path[-1].vos) == 2: # and not path[0] in self.orbital_system_graph.get_neighbors(path[-1]): # TODO: this would stop everytime you add a second neighbor
+                    for neighbor in self.orbital_system_graph.get_neighbors(path[-1]):
+                        if neighbor not in path:
+                            new_path = path.copy()
+                            new_path.append(neighbor)
+                            all_paths.append(new_path)
 
-        print(all_intrafragment_paths)
-        raise KeyError
-
-        #TODO: double check that everything works as intended
-        # now we combine intrafragment paths
-        all_interfragment_paths = []
-        # first permutate the fragment order
-        potential_fragment_arrangements = list(permutations(list(range(len(all_intrafragment_paths))), len(all_intrafragment_paths)))
-        for arrangement in potential_fragment_arrangements:
-            intrafragment_paths_tmp = [all_intrafragment_paths[i].copy() for i in arrangement]
-            # invert the final fragment pathways
-            for path in intrafragment_paths_tmp[-1]:
-                path = path[::-1]
-
-            # now make all the possible combinations within the selected fragment order
-            all_combinations_list = list(product(*intrafragment_paths_tmp))
-            for combination in all_combinations_list:
-                new_interfragment_path = []
-                for fragment in combination:
-                    new_interfragment_path += fragment
-                if not any(len(bonding_system) < 2 for bonding_system in new_interfragment_path[1:]):
-                    all_interfragment_paths.append(new_interfragment_path)
-                else:
-                    continue
-                if len(new_interfragment_path[0].vos) == 1 and len(new_interfragment_path[-1].vos) != 1:
-                    for orbital_system in self.orbital_system_graph.get_interfragment_path_ending_neighbors(new_interfragment_path[-1]):
-                        if str(orbital_system) not in str(new_interfragment_path): # you made copies, so you need to take string to compare the systems
-                            new_interfragment_path_alt = new_interfragment_path + [orbital_system]
-                            all_interfragment_paths.append(new_interfragment_path_alt)
-
-        return all_interfragment_paths
-
-    def modify_reaction_paths(self, all_paths):
-        products = []
-        unique_products = set()
-        for path in tqdm(all_paths):
-            modified_path = []
-            vos = []
-            for orbital_system in path:
-                vos += deepcopy(orbital_system.vos)
-            if len(path[0].vos) == 1 and len(path[-1].vos) == 1:
-                for i in range(0, len(vos), 2):
-                    modified_path += [construct_new_paired_orbital_system(vos[i], vos[i+1])]
-            elif len(path[0].vos) == 1 and len(path[-1].vos) == 2:
-                if path[0].vos[0].num_electrons == path[-1].vos[0].num_electrons:
-                    continue
-                else:
-                    for i in range(0, len(vos) - 1, 2):
-                        modified_path += [construct_new_paired_orbital_system(vos[i], vos[i+1])]
-                    if path[0].vos[0].num_electrons == 2:
-                        modified_path += [construct_new_single_vo_system(vos[-1], vos[-1].num_electrons + 1)]
-                    elif path[0].vos[0].num_electrons == 0:
-                        modified_path += [construct_new_single_vo_system(vos[-1], vos[-1].num_electrons - 1)]
-                    else:
-                        continue
-            elif len(path[0].vos) == 2 and len(path[-1].vos) == 2:
-                for i in range(1, len(vos)-2, 2):
-                    modified_path += [construct_new_paired_orbital_system(vos[i], vos[i+1])]
-                modified_path += [construct_new_paired_orbital_system(vos[0], vos[-1])]
-            else:
-                print('This path type has not yet been implemented!')
-
-            smiles = generate_smiles(
-                    self.orig_mol,
-                    path,
-                    modified_path,
-                )
-            if smiles != None:
-                    smiles_without_numbering = clear_numbering(smiles)
-                    if smiles_without_numbering not in unique_products:
-                        print(path)
-                        print()
-                        print(modified_path)
-                        print()
-                        print(smiles)
-                        unique_products.add(smiles_without_numbering)
-                        products.append(smiles)
-        
-        products = list(set(products))
+        all_paths = remove_duplicates(all_paths)
 
         print(self.numbered_smiles)
-        print(products)
-        print(len(products))
-        return products
+        for path in all_paths:
+            print(path)
+
+        print(len(all_paths))
+        raise KeyError
+
+        # finish the path construction by adding endpoints if they are not already there
+        for path in all_paths[previous_length:]:
+            if len(path[-1].vos) == 2 and not path[0] in self.orbital_system_graph.get_neighbors(path[-1]):
+                if path[0].is_lone_pair():
+                    for empty_valence in self.orbital_system_graph.empty_valences:
+                        new_path = path.copy()
+                        new_path.append(empty_valence)
+                        all_paths.append(new_path)
+                elif path[0].is_empty_valence():
+                    for lone_pair in self.orbital_system_graph.lone_pairs:
+                        new_path = path.copy()
+                        new_path.append(lone_pair)
+                        all_paths.append(new_path)
+                else:
+                    for neighbor in self.orbital_system_graph.get_neighbors(path[-1]):
+                        if neighbor not in path:
+                            new_path = path.copy()
+                            new_path.append(neighbor)
+                            all_paths.append(new_path)
+        
+
+        print(len(all_paths))
+        return all_paths
 
     def determine_atom_to_fragment_dict(self):
         atom_to_fragment_dict = {}
@@ -500,56 +410,21 @@ class Molecule:
             self.orbital_system_graph.add_orbital_system(orbital_system)
 
 
+
 def remove_duplicates(input_list):
     unique_list = []
+    tmp_list = []
     for item in input_list:
-        if item not in unique_list and item[::-1] not in unique_list:
+        if set(item) not in tmp_list:
             unique_list.append(item)
+            tmp_list.append(set(item))
     return unique_list
 
-# TODO: update!!!!
-def set_polarization_bonding_systems(bonding_systems):
-    """
-    Sets an ordering of the bonding systems.
-
-    Args:
-        bonding_systems (list): list of bonding systems.
-    """
-    for bonding_system in bonding_systems:
-        if len(bonding_system) > 1:
-            bonding_system.set_polarity()
 
 
-def construct_new_paired_orbital_system(vo1, vo2, idx=-1):
-    """Auxiliary function to construct a new paired orbital system from 2 existing vos.
 
-    Args:
-        vo1 (ValenceOrbital): first valence orbital object.
-        vo2 (ValenceOrbital): second valence orbital object.
-        idx (int): the index of the bonding system to be formed.
 
-    Returns:
-        OrbitalSystem: the new bonding system.
-    """
-    new_orbital_system = OrbitalSystem(idx)
-    vo1.set_population(1)
-    vo2.set_population(1)
-    new_orbital_system.add_vo(vo1)
-    new_orbital_system.add_vo(vo2)
 
-    return new_orbital_system
-
-def construct_new_single_vo_system(vo, pop, idx=-1):
-    new_orbital_system = OrbitalSystem(idx)
-    vo.set_population(pop)
-    new_orbital_system.add_vo(vo)
-
-    return new_orbital_system
-
-def clear_numbering(smiles):
-    mol = Chem.MolFromSmiles(smiles)
-    [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
-    return Chem.MolToSmiles(mol)
 
 
 
