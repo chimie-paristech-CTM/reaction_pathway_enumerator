@@ -2,7 +2,7 @@ import argparse
 from tqdm import tqdm
 import logging
 
-from enumerator.Molecule import Molecule
+from enumerator.Molecule import ReactingSystem
 
 HARTREE_TO_EV = 27.2114
 
@@ -54,9 +54,11 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     Returns:
         list: A list of product SMILES.
     """
-    mol = Molecule(smiles)
-    paths = mol.construct_reaction_paths(2)
-    mol.modify_reaction_paths(paths)
+    reacting_system = ReactingSystem(smiles)
+    reacting_system.generate_reaction_paths()
+    #paths = mol.construct_reaction_paths(2)
+    #mol.modify_reaction_paths(paths)
+    #mol.modify_specific_path()
     
     #generate_promotion_states(mol, 3)
 
