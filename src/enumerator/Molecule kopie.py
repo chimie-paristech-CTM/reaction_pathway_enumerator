@@ -152,13 +152,6 @@ class LocalizedOrbitalSystem:
         else:
             return False
 
-    def is_radical_site(self):
-        """Returns True if the orbital system corresponds to radical site."""
-        if len(self.vos) == 1 and self.num_electrons == 1:
-            return True
-        else:
-            return False
-
     def is_xh_bond(self):
         """Returns True if orbital system corresponds to an X-H bond."""
         return len(self.get_heavy_atoms()) != len(self.vos)
@@ -252,7 +245,6 @@ class LocalizedConfiguration:
         vo_to_orbital_system_dict = {}
         for orbital_system in self.active_orbital_systems_list:
             for vo in orbital_system.vos:
-                print(vo)
                 vo_to_orbital_system_dict[vo] = orbital_system
         
         return vo_to_orbital_system_dict
@@ -393,12 +385,15 @@ class OrbitalGraph:
 
         return all_intrafragment_paths
     
+    # TODO: I think I am doing this double!
     def get_interfragment_paths(self, all_intrafragment_paths):
+        for fragment in all_intrafragment_paths:
+            print(len(fragment))
         all_interfragment_paths = []
 
-        # first permutate the fragment order
+        # first permutate the fragment order and invert vo ordering in subsets of the fragments
         potential_fragment_arrangements = list(permutations(list(range(len(all_intrafragment_paths))), len(all_intrafragment_paths)))
-        selected_fragment_inversions_list = generate_subsets_bit(range(1,len(all_intrafragment_paths)))
+        selected_fragment_inversions_list = generate_subsets_bit(range(1,len(all_intrafragment_paths[0])))
         for arrangement in potential_fragment_arrangements:
             intrafragment_paths_reordered = [all_intrafragment_paths[i] for i in arrangement]
             # now make all the possible combinations within the selected fragment order
@@ -407,15 +402,13 @@ class OrbitalGraph:
                 for selected_inversions in selected_fragment_inversions_list:
                     new_interfragment_path = []
                     for i, fragment in enumerate(combination):
-                        # invert the fragments if they appear in generated list of possible inversion combinations
                         if not i in selected_inversions:
                             new_interfragment_path += fragment
                         else:
                             new_interfragment_path += fragment[::-1]
                     # remove invalid paths
-                    if any([len(self.existing_interactions[vo]) == 0 for vo in new_interfragment_path[1:-1]]):
+                    if any([len(self.existing_interactions(vo)) == 0 for vo in new_interfragment_path[1:-1]]):
                         continue
-                    # finalize path
                     elif len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
                         new_interfragment_path.append(self.get_interacting_orbitals(new_interfragment_path[0]))
                         all_interfragment_paths.append(new_interfragment_path)   
@@ -425,6 +418,67 @@ class OrbitalGraph:
                         all_interfragment_paths.append(new_interfragment_path)
                     else:
                         continue
+        print(len(all_interfragment_paths))
+        return all_interfragment_paths
+
+
+
+
+
+
+
+
+
+
+
+
+            # remove invalid paths
+            ## invert the final fragment pathway if it starts with an unpaired vo
+            #for bridging_path in intrafragment_paths_reordered[1:-1]:
+            #    # if the paths across the middle fragments are not bridging, then abort
+            #    if any([len(self.existing_interactions[bridging_path[0]]) == 0 or \
+                    len(self.existing_interactions[bridging_path[-1]]) == 0]):
+                    continue # TODO: fix!
+
+
+
+
+
+                for combination in combinations_of_fragment_inversions:
+                    interfragment_path_tmp = deepcopy(intrafragment_path)
+                    for path_idx in combination:
+                        interfragment_path_tmp[path_idx]
+                
+
+
+                #if not list(self.existing_interactions[intrafragment_path[-1][0]])[0].is_paired(): #TODO: what if multiple interactions???
+                #    intrafragment_path[-1] = intrafragment_path[-1][::-1]
+
+            # TODO: add a part where you iterate through the fragments, and make all the permutations -> ask chatgpt how you generate all the combinations up to length x from a list
+            print(generate_subsets_bit(arrangement[1:]))
+            raise KeyError
+            # now make all the possible combinations within the selected fragment order
+            all_combinations_list = list(product(*interfragment_paths_tmp))
+            for combination in all_combinations_list:
+                new_interfragment_path = []
+                for fragment in combination:
+                    new_interfragment_path += fragment 
+            
+                # finalize the path -- TODO: path ending??????
+                if len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                    new_interfragment_path.append(self.get_interacting_orbitals(new_interfragment_path[0]))
+                    all_interfragment_paths.append(new_interfragment_path)   
+                elif len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 0:
+                    all_interfragment_paths.append(new_interfragment_path[::-1]) 
+                elif len(self.existing_interactions[new_interfragment_path[0]]) == 0 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                    all_interfragment_paths.append(new_interfragment_path)
+                else:
+                    continue
+            
+                #if len(fr)
+                #for i in range(1, len(fragment)):
+                #    new_interfragment_path = []
+                #    intrafragment_path[i] = intrafragment_path[i][::-1]
 
         return all_interfragment_paths
 
