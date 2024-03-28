@@ -152,13 +152,6 @@ class LocalizedOrbitalSystem:
         else:
             return False
 
-    def is_radical_site(self):
-        """Returns True if the orbital system corresponds to radical site."""
-        if len(self.vos) == 1 and self.num_electrons == 1:
-            return True
-        else:
-            return False
-
     def is_xh_bond(self):
         """Returns True if orbital system corresponds to an X-H bond."""
         return len(self.get_heavy_atoms()) != len(self.vos)
@@ -252,7 +245,6 @@ class LocalizedConfiguration:
         vo_to_orbital_system_dict = {}
         for orbital_system in self.active_orbital_systems_list:
             for vo in orbital_system.vos:
-                print(vo)
                 vo_to_orbital_system_dict[vo] = orbital_system
         
         return vo_to_orbital_system_dict
@@ -269,7 +261,6 @@ class OrbitalGraph:
         self.atom_to_fragment_dict = self.get_atom_to_fragment_dict(numbered_smiles)
         self.numbered_smiles = numbered_smiles
         self.orig_mol = orig_mol
-        print(self.numbered_smiles)
 
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
@@ -354,7 +345,7 @@ class OrbitalGraph:
             self.potential_interfragment_path_ending_interactions[source].add(destination)
     
     def get_interacting_orbitals(self, vo):
-        return list(self.existing_interactions.get(vo, {}))
+        return self.existing_interactions.get(vo, [])
 
     def get_intrafragment_neighbors(self, vo):
         return self.potential_intrafragment_interactions.get(vo, [])
@@ -369,19 +360,7 @@ class OrbitalGraph:
         all_intrafragment_paths = [[] for _ in self.numbered_smiles.split('.')]
         # initialize
         for vo in self.localized_configuration.get_vos():
-            new_path = []
-            partner_vos = self.get_interacting_orbitals(vo) 
-            if len(partner_vos) == 0:
-                new_path.append(vo)
-            elif len(partner_vos) == 1:
-                new_path.append(vo)
-                new_path.append(partner_vos[0])
-                if len(self.get_interacting_orbitals(partner_vos[0])) == 2: # 3c systems
-                    remaining_vo = [vo3 for vo3 in self.get_interacting_orbitals(partner_vos[0]) if vo3 != vo]
-                    new_path.append(remaining_vo[0])
-            else:
-                continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities
-            all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(new_path)
+            all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append([vo])
 
         for fragment_paths in all_intrafragment_paths:
             previous_length = 0
@@ -394,61 +373,129 @@ class OrbitalGraph:
                         if len(partners_of_neighbor) == 0:
                             continue # you don't want to prematurely end paths
                         elif len(partners_of_neighbor) == 1:
-                            if neighbor not in path and partners_of_neighbor[0].atom_idx not in [vo.atom_idx for vo in path]:
+                            if neighbor not in path and list(partners_of_neighbor)[0].atom_idx not in [vo.atom_idx for vo in path]:
                                 new_path = path.copy() # only a shallow copy is needed -> don't duplicate the elements
                                 new_path.append(neighbor)
-                                new_path.append(partners_of_neighbor[0])
+                                new_path.append(list(partners_of_neighbor)[0])
                                 fragment_paths.append(new_path)
                             else:
-                                continue # no 3c systems halfway through the path, because this would also prematurely end it 
+                                continue
                         else:
-                            continue # no 3c systems halfway through the path, because this would also prematurely end it
+                            print('not yet implemented!')
 
         return all_intrafragment_paths
     
+    # TODO: I think I am doing this double!
     def get_interfragment_paths(self, all_intrafragment_paths):
+        for fragment in all_intrafragment_paths:
+            print(len(fragment))
         all_interfragment_paths = []
 
-        # first permutate the fragment order
+        # first permutate the fragment order and invert vo ordering in subsets of the fragments
         potential_fragment_arrangements = list(permutations(list(range(len(all_intrafragment_paths))), len(all_intrafragment_paths)))
+        selected_fragment_inversions_list = generate_subsets_bit(range(1,len(all_intrafragment_paths[0])))
         for arrangement in potential_fragment_arrangements:
-            intrafragment_paths_reordered = [all_intrafragment_paths[i].copy() for i in arrangement]
+            intrafragment_paths_reordered = [all_intrafragment_paths[i] for i in arrangement]
             # now make all the possible combinations within the selected fragment order
             all_combinations_list = list(product(*intrafragment_paths_reordered))
             for combination in all_combinations_list:
+                for selected_inversions in selected_fragment_inversions_list:
+                    new_interfragment_path = []
+                    for i, fragment in enumerate(combination):
+                        if not i in selected_inversions:
+                            new_interfragment_path += fragment
+                        else:
+                            new_interfragment_path += fragment[::-1]
+                    # remove invalid paths
+                    if any([len(self.existing_interactions(vo)) == 0 for vo in new_interfragment_path[1:-1]]):
+                        continue
+                    elif len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                        new_interfragment_path.append(self.get_interacting_orbitals(new_interfragment_path[0]))
+                        all_interfragment_paths.append(new_interfragment_path)   
+                    elif len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 0:
+                        all_interfragment_paths.append(new_interfragment_path[::-1]) 
+                    elif len(self.existing_interactions[new_interfragment_path[0]]) == 0 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                        all_interfragment_paths.append(new_interfragment_path)
+                    else:
+                        continue
+        print(len(all_interfragment_paths))
+        return all_interfragment_paths
+
+
+
+
+
+
+
+
+
+
+
+
+            # remove invalid paths
+            ## invert the final fragment pathway if it starts with an unpaired vo
+            #for bridging_path in intrafragment_paths_reordered[1:-1]:
+            #    # if the paths across the middle fragments are not bridging, then abort
+            #    if any([len(self.existing_interactions[bridging_path[0]]) == 0 or \
+                    len(self.existing_interactions[bridging_path[-1]]) == 0]):
+                    continue # TODO: fix!
+
+
+
+
+
+                for combination in combinations_of_fragment_inversions:
+                    interfragment_path_tmp = deepcopy(intrafragment_path)
+                    for path_idx in combination:
+                        interfragment_path_tmp[path_idx]
+                
+
+
+                #if not list(self.existing_interactions[intrafragment_path[-1][0]])[0].is_paired(): #TODO: what if multiple interactions???
+                #    intrafragment_path[-1] = intrafragment_path[-1][::-1]
+
+            # TODO: add a part where you iterate through the fragments, and make all the permutations -> ask chatgpt how you generate all the combinations up to length x from a list
+            print(generate_subsets_bit(arrangement[1:]))
+            raise KeyError
+            # now make all the possible combinations within the selected fragment order
+            all_combinations_list = list(product(*interfragment_paths_tmp))
+            for combination in all_combinations_list:
                 new_interfragment_path = []
-                for fragment_path in combination:
-                    new_interfragment_path += fragment_path
-                # remove invalid paths -- you should only keep continuous paths, i.e., when the bridging vos had an interacting orbital to start with
-                if any([len(self.get_interacting_orbitals(vo)) != 1 for vo in new_interfragment_path[1:-1]]):
+                for fragment in combination:
+                    new_interfragment_path += fragment 
+            
+                # finalize the path -- TODO: path ending??????
+                if len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                    new_interfragment_path.append(self.get_interacting_orbitals(new_interfragment_path[0]))
+                    all_interfragment_paths.append(new_interfragment_path)   
+                elif len(self.existing_interactions[new_interfragment_path[0]]) == 1 and len(self.existing_interactions[new_interfragment_path[-1]]) == 0:
+                    all_interfragment_paths.append(new_interfragment_path[::-1]) 
+                elif len(self.existing_interactions[new_interfragment_path[0]]) == 0 and len(self.existing_interactions[new_interfragment_path[-1]]) == 1:
+                    all_interfragment_paths.append(new_interfragment_path)
+                else:
                     continue
-                all_interfragment_paths.append(new_interfragment_path)
+            
+                #if len(fr)
+                #for i in range(1, len(fragment)):
+                #    new_interfragment_path = []
+                #    intrafragment_path[i] = intrafragment_path[i][::-1]
 
         return all_interfragment_paths
 
-    # TODO: THIS IS NOT YET 3C BOND PROOF!
-    # TODO: Maybe I do need to properly modify the path and keep track of orbital systems, so that I can more easily modify the SMILES
     def modify_reaction_paths(self, all_paths):
         modified_paths = []
         for path in tqdm(all_paths):
             # ensure that the electron counts are fine
             modified_path = deepcopy(path)
-            if path[0].is_paired() and path[-1].is_paired():
-                pass # no CT, simply a covalent rearrangement
-            elif not path[0].is_paired() and not path[-1].is_paired():
-                # this means that you either had two radical sites or a doubly occupied and empty VO -> pairing takes place
-                modified_path[0].num_electrons = 1
-                modified_path[-1].num_electrons = 1
-            elif not path[0].is_paired() and path[-1].is_paired():
-                # first VO starts pairing, last VO ends up in its original situation
-                modified_path[-1].num_electrons = path[0].num_electrons
-                modified_path[0].num_electrons = 1
-            elif path[0].is_paired() and not path[-1].is_paired():
-                # reverse from above
-                modified_path[0].num_electrons = path[-1].num_electrons
-                modified_path[-1].num_electrons = 1
+            if not path[0].is_paired:
+                if not path[-1].is_paired:
+                    modified_path[0].num_electrons = 1
+                    modified_path[-1].num_electrons = 1
+                else:
+                    modified_path[-1].num_electrons = path[0].num_electrons
+                    modified_path[0].num_electrons = 1
             modified_paths.append(modified_path)
-
+            
         return modified_paths
 
     def generate_products(self, original_paths, modified_paths):
@@ -457,10 +504,9 @@ class OrbitalGraph:
 
         for original_path, modified_path in tqdm(zip(original_paths, modified_paths)):
             smiles = generate_smiles(
-                    self.orig_mol,
+                self.orig_mol,
                     original_path,
                     modified_path,
-                    self.existing_interactions
                 )
             if smiles != None:
                 smiles_without_numbering = clear_numbering(smiles)
@@ -468,8 +514,7 @@ class OrbitalGraph:
                     unique_products.add(smiles_without_numbering)
                     products.append(smiles)
             
-        print(unique_products)
-
+        products = list(set(products))
         return products
 
     def __str__(self) -> str:
@@ -484,6 +529,7 @@ class ReactingSystem:
         
         self.num_atoms = self.orig_mol.GetNumAtoms()
         self.atoms = self.set_up_atoms()
+        #self.atom_to_fragment_dict = self.get_atom_to_fragment_dict()
 
         self.localized_configuration = self.set_up_localized_configuration()
         self.orbital_graph = self.set_up_orbital_graph()
@@ -532,12 +578,6 @@ class ReactingSystem:
         interfragment_paths = self.orbital_graph.get_interfragment_paths(intrafragment_paths)
         modified_paths = self.orbital_graph.modify_reaction_paths(interfragment_paths)
 
-        return interfragment_paths, modified_paths
-
-    def generate_products(self, original_paths, modified_paths):
-        products = self.orbital_graph.generate_products(original_paths, modified_paths)
-        return products
-
 
 def get_neighbors_dict(orig_mol):
         return {atom.GetAtomMapNum(): [neighbor.GetAtomMapNum()
@@ -545,13 +585,9 @@ def get_neighbors_dict(orig_mol):
 
 
 def clear_numbering(smiles):
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
-        return Chem.MolToSmiles(mol)
-    except:
-        return None
-
+    mol = Chem.MolFromSmiles(smiles)
+    [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
+    return Chem.MolToSmiles(mol)
 
 def generate_subsets_bit(nums):
     subsets = []
