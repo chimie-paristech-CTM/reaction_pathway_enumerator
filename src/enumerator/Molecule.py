@@ -105,6 +105,7 @@ class Atom:
         return f'idx: {self.idx}, type: {self.atom_type}, vos: {self.valence_orbitals}'
 
 
+# TODO: combine localized and delocalized orbital systems in one base class and use inheritance
 class LocalizedOrbitalSystem:
     """A class corresponding to individual (localized) orbital systems."""
 
@@ -112,7 +113,6 @@ class LocalizedOrbitalSystem:
         self.idx = idx
         self.vos = []
         self.num_electrons = 0
-        self.polarity_set = False
 
     def add_vo(self, vo: "ValenceOrbital"):
         """Add valence orbitals to the orbital system (and modify the pairing bools accordingly)."""
@@ -123,20 +123,6 @@ class LocalizedOrbitalSystem:
         else:
             for vo in self.vos:
                 vo.set_paired()
-
-    def set_polarity(self):
-        """
-        If electronegativity spread bigger than, or equal to, 0.4, set the vo order of the orbital system, 
-        with the negative pole first. Values are specific vos.
-        """
-        if len(self.vos) > 1:
-            electronegativity_list = [electro_dict[vo.atom_type] for vo in self.vos]
-            if max(electronegativity_list) - min(electronegativity_list) >= 0.399:
-                self.vos = [
-                    self.vos[np.argmax(electronegativity_list)],
-                    self.vos[np.argmin(electronegativity_list)],
-                ]
-                self.polarity_set = True
 
     def is_lone_pair(self):
         """Returns True if orbital system corresponds to lone pair."""
@@ -179,6 +165,26 @@ class LocalizedOrbitalSystem:
     def __len__(self) -> int:
         return len(self.vos)
     
+class DelocalizedOrbitalSystem:
+    """A class corresponding to individual delocalized orbital systems, i.e., collections of localized orbital systems."""
+
+    def __init__(self, idx, vo_init):
+        self.idx = idx
+        self.vos = [vo_init]
+    
+    def add_vo(self, vo):
+        self.vos.append(vo)
+
+    def get_vos(self):
+        return self.vos
+    
+    def __str__(self):
+        return f'idx: {self.idx}; vos: {self.vos}'
+    
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
 class LocalizedConfiguration:
     def __init__(self, orig_mol, atoms):
         self.orbital_systems_list = self.set_up_localized_orbital_systems(orig_mol, atoms)
@@ -252,14 +258,13 @@ class LocalizedConfiguration:
         vo_to_orbital_system_dict = {}
         for orbital_system in self.active_orbital_systems_list:
             for vo in orbital_system.vos:
-                print(vo)
                 vo_to_orbital_system_dict[vo] = orbital_system
         
         return vo_to_orbital_system_dict
     
     def get_vos(self):
         """ """
-        return self.vo_to_orbital_system_dict.keys()
+        return list(self.vo_to_orbital_system_dict.keys())
 
 
 class OrbitalGraph:
@@ -269,16 +274,19 @@ class OrbitalGraph:
         self.atom_to_fragment_dict = self.get_atom_to_fragment_dict(numbered_smiles)
         self.numbered_smiles = numbered_smiles
         self.orig_mol = orig_mol
-        print(self.numbered_smiles)
 
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
         self.potential_interfragment_interactions = {}
-        self.potential_interfragment_path_ending_interactions = {}
+        #self.potential_interfragment_path_ending_interactions = {}
+        self.secondary_interactions = {}
 
         self.add_vos_to_graph()
         self.add_existing_interactions()
         self.add_potential_interactions()
+
+        self.delocalized_orbital_systems = self.construct_delocalized_systems()
+        self.vo_to_deloc_orbital_systems_dict = self.get_vo_to_deloc_orbital_systems_dict() 
 
     def get_atom_to_fragment_dict(self, numbered_smiles):
         atom_to_fragment_dict = {}
@@ -298,10 +306,11 @@ class OrbitalGraph:
                 self.potential_intrafragment_interactions[vo] = set()
             if vo not in self.potential_interfragment_interactions:
                 self.potential_interfragment_interactions[vo] = set()
-            if vo not in self.potential_interfragment_path_ending_interactions:
-                self.potential_interfragment_path_ending_interactions[vo] = set()
+            #if vo not in self.potential_interfragment_path_ending_interactions:
+            #    self.potential_interfragment_path_ending_interactions[vo] = set()
+            if vo not in self.secondary_interactions:
+                self.secondary_interactions[vo] = set()
         
-
     def add_existing_interactions(self):
         for orbital_system in self.localized_configuration.active_orbital_systems_list:
             if len(orbital_system.vos) > 1:
@@ -335,8 +344,8 @@ class OrbitalGraph:
                     if len(self.existing_interactions[vo2]) != 0:
                         self.add_potential_interfragment_interaction(vo1, vo2)
                     # TODO: is this really necessary? I would think that all paths involving lone pairs/empty valences are already covered...
-                    else:
-                        self.add_potential_interfragment_path_ending_interaction(vo1, vo2)
+                    #else:
+                    #    self.add_potential_interfragment_path_ending_interaction(vo1, vo2)
     
     def add_potential_intrafragment_interaction(self, source, destination):
         if source in self.potential_intrafragment_interactions and destination in self.potential_intrafragment_interactions \
@@ -347,12 +356,48 @@ class OrbitalGraph:
         if source in self.potential_interfragment_interactions and destination in self.potential_interfragment_interactions \
             and destination not in self.potential_interfragment_interactions[source]:
             self.potential_interfragment_interactions[source].add(destination)
+
+    def construct_delocalized_systems(self):
+        vo_list = self.localized_configuration.get_vos()
+        delocalized_orbital_systems = []
+        for vo in vo_list:
+            delocalized_orbital_system = DelocalizedOrbitalSystem(len(delocalized_orbital_systems), vo)
+            partners = self.get_interacting_orbitals(vo) + self.get_secondary_interactions(vo)
+            while len(partners) != 0:
+                new_partners = []
+                for partner in partners:
+                    if partner in vo_list:
+                        vo_list.remove(partner)
+                    delocalized_orbital_system.add_vo(partner)
+                    partners_of_partner = self.get_interacting_orbitals(partner) + self.get_secondary_interactions(partner)
+                    new_partners += [vo for vo in partners_of_partner if vo not in delocalized_orbital_system.get_vos()]
+                partners = new_partners
+            delocalized_orbital_systems.append(delocalized_orbital_system)
+        
+        return delocalized_orbital_systems
     
-    def add_potential_interfragment_path_ending_interaction(self, source, destination):
-        if source in self.potential_interfragment_path_ending_interactions and destination in self.potential_interfragment_path_ending_interactions \
-            and destination not in self.potential_interfragment_path_ending_interactions[source]:
-            self.potential_interfragment_path_ending_interactions[source].add(destination)
+    def get_vo_to_deloc_orbital_systems_dict(self):
+        vo_to_deloc_orbital_systems_dict = {}
+        for delocalized_orbital_system in self.delocalized_orbital_systems:
+            vo_list = delocalized_orbital_system.get_vos()
+            for vo in vo_list:
+                vo_to_deloc_orbital_systems_dict[vo] = delocalized_orbital_system.idx
+
+        return vo_to_deloc_orbital_systems_dict
     
+    #def add_potential_interfragment_path_ending_interaction(self, source, destination):
+    #    if source in self.potential_interfragment_path_ending_interactions and destination in self.potential_interfragment_path_ending_interactions \
+    #        and destination not in self.potential_interfragment_path_ending_interactions[source]:
+    #        self.potential_interfragment_path_ending_interactions[source].add(destination)
+
+    # TODO: complete this once you have integrated NBO read-in/-out
+    def add_secondary_interactions(self, source, destination):
+        pass
+
+    # TODO: complete this once you have integrated NBO read-in/-out
+    def get_secondary_interactions(self, vo):
+        return list(self.secondary_interactions.get(vo, {}))
+
     def get_interacting_orbitals(self, vo):
         return list(self.existing_interactions.get(vo, {}))
 
@@ -362,11 +407,12 @@ class OrbitalGraph:
     def get_interfragment_neighbors(self, vo):
         return self.potential_interfragment_interactions.get(vo, [])
 
-    def get_interfragment_path_ending_neighbors(self, vo):
-        return self.potential_interfragment_path_ending_interactions.get(vo, [])
+    #def get_interfragment_path_ending_neighbors(self, vo):
+    #    return self.potential_interfragment_path_ending_interactions.get(vo, [])
 
     def get_intrafragment_paths(self, max_length=2):
         all_intrafragment_paths = [[] for _ in self.numbered_smiles.split('.')]
+    
         # initialize
         for vo in self.localized_configuration.get_vos():
             new_path = []
@@ -383,26 +429,57 @@ class OrbitalGraph:
                 continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities
             all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(new_path)
 
+        # new try...
+
+
+        # iterate through the fragments
         for fragment_paths in all_intrafragment_paths:
-            previous_length = 0
-            for _ in range(max_length - 1):
-                paths_to_extend = fragment_paths[previous_length:]
-                previous_length = len(fragment_paths)
+            # initialize -- at first, we consider plausible extensions to each mono-orbital system path
+            paths_to_extend = fragment_paths
+            while len(paths_to_extend) > 0:
+                new_paths_to_extend = []
                 for path in paths_to_extend:
                     for neighbor in self.get_intrafragment_neighbors(path[-1]):
                         partners_of_neighbor = self.get_interacting_orbitals(neighbor)
-                        if len(partners_of_neighbor) == 0:
+                        if len(partners_of_neighbor) == 0 or len(partners_of_neighbor) == 2:
                             continue # you don't want to prematurely end paths
                         elif len(partners_of_neighbor) == 1:
                             if neighbor not in path and partners_of_neighbor[0].atom_idx not in [vo.atom_idx for vo in path]:
-                                new_path = path.copy() # only a shallow copy is needed -> don't duplicate the elements
+                                new_path = path.copy() # only a shallow copy is needed -> don't duplicate the VOs
                                 new_path.append(neighbor)
                                 new_path.append(partners_of_neighbor[0])
                                 fragment_paths.append(new_path)
+                                if self.get_number_of_delocalized_orbital_systems(path) < max_length:
+                                    new_paths_to_extend.append(new_path)
+                                else:
+                                    continue
                             else:
-                                continue # no 3c systems halfway through the path, because this would also prematurely end it 
+                                continue # no crossings within path
                         else:
-                            continue # no 3c systems halfway through the path, because this would also prematurely end it
+                            continue # no 3c systems halfway through the path, because this would also prematurely end it 
+                    
+                paths_to_extend = new_paths_to_extend
+
+        #for fragment_paths in all_intrafragment_paths:
+        #    previous_length = 0
+        #    for _ in range(max_length - 1):
+        #        paths_to_extend = fragment_paths[previous_length:]
+        #        previous_length = len(fragment_paths)
+        #        for path in paths_to_extend:
+        #            for neighbor in self.get_intrafragment_neighbors(path[-1]):
+        #                partners_of_neighbor = self.get_interacting_orbitals(neighbor)
+        #                if len(partners_of_neighbor) == 0:
+        #                    continue # you don't want to prematurely end paths
+        #                elif len(partners_of_neighbor) == 1:
+        #                    if neighbor not in path and partners_of_neighbor[0].atom_idx not in [vo.atom_idx for vo in path]:
+        #                        new_path = path.copy() # only a shallow copy is needed -> don't duplicate the elements
+        #                        new_path.append(neighbor)
+        #                        new_path.append(partners_of_neighbor[0])
+        #                        fragment_paths.append(new_path)
+        #                    else:
+        #                        continue # no 3c systems halfway through the path, because this would also prematurely end it 
+        #                else:
+        #                    continue # no 3c systems halfway through the path, because this would also prematurely end it
 
         return all_intrafragment_paths
     
@@ -450,6 +527,9 @@ class OrbitalGraph:
             modified_paths.append(modified_path)
 
         return modified_paths
+
+    def get_number_of_delocalized_orbital_systems(self, path):
+        return len(set([self.vo_to_deloc_orbital_systems_dict[vo] for vo in path]))
 
     def generate_products(self, original_paths, modified_paths):
         products = []
