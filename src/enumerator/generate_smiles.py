@@ -113,9 +113,6 @@ def generate_smiles(orig_mol, path, modified_path, existing_interactions):
         if len(editable_mol.GetAtoms()) != len(Chem.AddHs(Chem.MolFromSmiles(Chem.MolToSmiles(editable_mol))).GetAtoms()):
             return None
     except Exception as e:
-        print(e)
-        print('lol')
-        print(path, modified_path)
         print(Chem.MolToSmiles(editable_mol))
         #raise KeyError
 

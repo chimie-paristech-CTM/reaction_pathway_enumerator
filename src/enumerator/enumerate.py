@@ -57,8 +57,8 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
         list: A list of product SMILES.
     """
     reacting_system = ReactingSystem(smiles)
-    original_paths, modified_paths = reacting_system.generate_reaction_paths()
-    products = reacting_system.generate_products(original_paths, modified_paths)
+    original_paths = reacting_system.generate_reaction_paths()
+    products = reacting_system.generate_products(original_paths)
 
     return products
 
