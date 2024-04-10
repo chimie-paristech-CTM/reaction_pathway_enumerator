@@ -2,13 +2,8 @@ import argparse
 from tqdm import tqdm
 import logging
 
-from enumerator.Molecule import Molecule
-from enumerator.generate_products import (
-    enumerate_reaction_possibilities,
-    generate_products,
-)
-from enumerator.get_energies import get_system_energy
-
+from enumerator.reacting_system import ReactingSystem
+from enumerator.get_energies import get_system_energy 
 
 HARTREE_TO_EV = 27.2114
 
@@ -19,6 +14,7 @@ def get_args():
     parser.add_argument("--idx-list", nargs="+", default=None)
     parser.add_argument("--solvent", action="store", default=None)
     parser.add_argument("--n-bonding-systems", action="store", type=int, default=4)
+    
     return parser.parse_args()
 
 
@@ -26,11 +22,13 @@ def get_thermodynamically_feasible_products():
     """Returns a list of feasible product molecules based on the SMILES input."""
     args = get_args()
     logging.basicConfig(
-        filename=f"{args.smiles}.log", encoding="utf-8", level=logging.DEBUG
+        filename=f"test.log", encoding="utf-8", level=logging.DEBUG
     )
     products = enumerate_potential_products(
         args.smiles, args.idx_list, args.n_bonding_systems
     )
+    print(products)
+    print(len(products))
     product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
 
     logging.info(product_energies_dict)
@@ -45,14 +43,6 @@ def get_thermodynamically_feasible_products():
     print(len(feasible_products_dict))
 
     print(len(product_energies_dict))
-    #print(product_energies_dict)
-
-
-def get_energy():
-    """Returns the energy of a system corresponding to a SMILES string."""
-    args = get_args()
-    energy = get_system_energy(args.smiles, solvent=args.solvent)
-    print(energy)
 
 
 def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
@@ -66,13 +56,9 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
     Returns:
         list: A list of product SMILES.
     """
-    mol = Molecule(smiles)
-    if idx_list:
-        products = generate_products(mol, list(map(int, idx_list)))
-    elif n_bonding_systems:
-        products = enumerate_reaction_possibilities(mol, n_bonding_systems)
-
-    products = list(set(products))
+    reacting_system = ReactingSystem(smiles)
+    original_paths = reacting_system.generate_reaction_paths()
+    products = reacting_system.generate_products(original_paths)
 
     return products
 
