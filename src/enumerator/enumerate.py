@@ -2,7 +2,7 @@ import argparse
 from tqdm import tqdm
 import logging
 
-from enumerator.Molecule import ReactingSystem
+from enumerator.reacting_system import ReactingSystem
 from enumerator.get_energies import get_system_energy 
 
 HARTREE_TO_EV = 27.2114

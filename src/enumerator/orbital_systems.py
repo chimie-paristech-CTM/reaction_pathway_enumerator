@@ -4,7 +4,9 @@ import numpy as np
 import re
 from itertools import permutations, product
 from tqdm import tqdm
-from enumerator.generate_smiles import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order #generate_smiles
+from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order
+from enumerator.utils import clear_numbering, get_neighbors_dict
+
 from copy import deepcopy
 
 
@@ -12,8 +14,8 @@ ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co", 
-    "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru" 
-]
+    "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
+
 
 # TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
 def atom_to_num_VOs(atom_symbol: str) -> int:
@@ -197,7 +199,7 @@ class LocalizedConfiguration:
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
-    # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)
+    # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
     def set_up_localized_orbital_systems(self, orig_mol, atoms):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
@@ -249,7 +251,6 @@ class LocalizedConfiguration:
 
         return orbital_systems 
 
-    # TODO: you are losing lone pairs here 
     def select_active_orbital_systems(self):
         """ Only keep 1 orbital system of a triple/double bond, and only keep 1 X-H bond for every atom X """
         active_orbital_systems = set()
@@ -312,15 +313,15 @@ class Reaction:
 
         if not conventional_path:
             self.connect_end_vos = False
-            self.invert_vo_populations_to_complete_orig_path()
+            self.invert_vo_populations_to_complete_modified_path()
         else:
             self.connect_end_vos = True
         
         self.adjust_vo_populations_along_modified_path()
 
-    def invert_vo_populations_to_complete_orig_path(self):
+    def invert_vo_populations_to_complete_modified_path(self):
         """
-        This method inverses vo populations if vos not at the endpoints, but still in the first or last orbital system, 
+        This method inverses VO populations if VOs not at the endpoints, but still in the first or last orbital system, 
         contain a number of electrons differing from 1 (reflecting the inherent delocalization present in these systems). 
         In case of 2c3e/2c1e, the first/list vo is set inactive, since the actual reorganization of the path will need to 
         start from the second (to last) vo.
@@ -366,7 +367,8 @@ class Reaction:
     # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
     # For now you can leave this however since this is inherently problematic with SMILES.
     def generate_smiles(self):
-        """Generate an output SMILES string.
+        """
+        Generate an output SMILES string.
 
         Returns:
             str: the output SMILES
@@ -398,7 +400,7 @@ class Reaction:
             self.orig_path[end_idx].num_electrons == 1 and self.modified_path[start_idx].num_electrons == 1:
                 editable_mol = fix_radical_counts_at_endpoints_path(editable_mol, self.orig_path[end_idx], self.orig_path[start_idx]) 
 
-    # if 1 atom carries both a lone pair and an empty orbital, sanitization will add Hs -> you don't want that!
+        # if 1 atom carries both a lone pair and an empty orbital, sanitization will add Hs -> you don't want that!
         try:      
             if len(editable_mol.GetAtoms()) != len(Chem.AddHs(Chem.MolFromSmiles(Chem.MolToSmiles(editable_mol))).GetAtoms()):
                 return None
@@ -675,17 +677,19 @@ class OrbitalGraph:
                 if vo.num_electrons == 1 and partner_vos[0].num_electrons == 1:
                     new_path.append(vo)
                     new_path.append(partner_vos[0])
-                elif vo.num_electrons == 1 and partner_vos[0].num_electrons != 1: # 2c1e/2c3e TODO: you should still break the bond between the partner and the vo
-                    new_path.append(partner_vos[0]) # put the other vo first so that you can leave this "dangling"
+                elif vo.num_electrons == 1 and partner_vos[0].num_electrons != 1: # 2c1e/2c3e
+                    new_path.append(partner_vos[0]) # put the other vo first so that you can leave this out during repairing
                     new_path.append(vo) 
+
                 if len(self.get_interacting_orbitals(partner_vos[0])) == 2: # 3c systems
                     remaining_vo = [vo3 for vo3 in self.get_interacting_orbitals(partner_vos[0]) if vo3 != vo]
                     new_path.append(remaining_vo[0])
             else:
-                continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities
+                continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities; 
+                         # in 2c3e or 2c1e you do not need to start from the empty/doubly filled VO (this is already treated later on)
             all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(new_path)
 
-        # iterate through the fragments
+        # iterate through the intrafragment paths
         for fragment_paths in all_intrafragment_paths:
             # initialize -- at first, we consider plausible extensions to each mono-orbital system path
             paths_to_extend = fragment_paths
@@ -697,7 +701,7 @@ class OrbitalGraph:
                         if len(partners_of_neighbor) == 0 or len(partners_of_neighbor) == 2:
                             continue # you don't want to prematurely end paths
                         elif len(partners_of_neighbor) == 1:
-                            if neighbor.num_electrons != 1 or partners_of_neighbor[0].num_electrons !=1:
+                            if neighbor.num_electrons != 1 or partners_of_neighbor[0].num_electrons != 1:
                                 continue 
                             # 2c1e/2c3e bonds should not be in the middle of the path either since this would also end the path
                             elif neighbor.num_electrons + partners_of_neighbor[0].num_electrons != 2:
@@ -719,6 +723,8 @@ class OrbitalGraph:
         return all_intrafragment_paths
     
     # TODO: what if two lone pairs get selected as end-points???
+    # TODO: shouldn't you also include an inversion of the final intrafragment path (in a separate loop at the end)???? 
+    # because right now, you will never get extensions with anything longer than a single lone pair/empty orbital at the end -- though you do have the symmetric path
     def get_interfragment_paths(self, all_intrafragment_paths):
         """    
         Get all possible interfragment paths by permuting fragment order and combining intrafragment paths.
@@ -741,19 +747,65 @@ class OrbitalGraph:
             all_combinations_list = list(product(*intrafragment_paths_reordered))
             for combination in all_combinations_list:
                 new_interfragment_path = []
-                for fragment_path in combination:
+                for fragment_path in combination[:-1]:
                     new_interfragment_path += fragment_path
+                # inverse the final fragment_path before attachment (so that lone pairs etc. end up at the very end)
+                terminal_path = combination[-1].copy()
+                new_interfragment_path += terminal_path[::-1]
                 # remove invalid paths -- you should only keep continuous paths, i.e., when the bridging vos had an interacting orbital to start with
-                if any([len(self.get_interacting_orbitals(vo)) != 1 for vo in new_interfragment_path[1:-1]]):
+                # only start looking from the second vo, because you want to retain paths in which there is a 3c orbital system at the end
+                if any([len(self.get_interacting_orbitals(vo)) != 1 for vo in new_interfragment_path[2:-2]]):
                     continue
                 all_interfragment_paths.append(new_interfragment_path)
 
         return all_interfragment_paths
 
+    def get_intramolecular_paths(self, max_length=3):
+        """
+        If only a single fragment in the reacting system, generate intramolecular reactions by determining extra long fragments, 
+        potentially adding terminal fragments (if path started with a VO that cannot be reconnected).
+
+        Args:
+            max_length (int, optional): The maximum length of paths to consider. Defaults to 3.
+
+        Returns:
+            list: A list of lists, where each inner list represents a set of valence orbitals forming 
+            a full intramolecular path.
+        """
+
+        if len(self.numbered_smiles.split('.')) > 1:
+            print('Multiple fragments detected in the reacting system, please provide a single molecule to generate intramolecular paths')
+            return None
+
+        intramolecular_paths = [path for path in self.get_intrafragment_paths(max_length=max_length)]
+        terminal_fragment_paths = [path.copy()[::-1] for path in intramolecular_paths if len(path) <= 3] # inverse the terminal paths
+
+        extra_paths = [] # you want to end the paths that started with a vo that cannot be reconnected
+        for path in intramolecular_paths:
+            if path[0].num_electrons != 1:
+                for terminal_path in terminal_fragment_paths:
+                    extra_paths.append(path.copy())
+                    extra_paths[-1].append(terminal_path)
+        intramolecular_paths += extra_paths 
+
+        return intramolecular_paths
+
     def generate_products(self, all_paths):
+        """
+        Generate unique product SMILES representations from a list of reaction paths.
+
+        Args:
+            all_paths (list): A list of reaction paths.
+
+        Returns:
+            list: A list containing unique product SMILES representations.
+
+        This method iterates through each reaction path provided, creates a Reaction object
+        based on the path, and generates the SMILES representation of the product. Only unique
+        products are stored in the result list, ensuring that duplicate products are excluded. 
+        """
         products = []
         unique_products = set()
-        # true_start_vo, true_end_vo = None, None
         for path in tqdm(all_paths):
 
             if (self.localized_configuration.vo_to_orbital_system_dict[path[0].identifier].is_conventional() and \
@@ -781,7 +833,8 @@ class ReactingSystem:
 
     def __init__(self, smiles: str):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
-        
+        print(self.numbered_smiles)
+
         self.num_atoms = self.orig_mol.GetNumAtoms()
         self.atoms = self.set_up_atoms()
 
@@ -869,51 +922,3 @@ def get_neighbors_dict(orig_mol):
     """
     return {atom.GetAtomMapNum(): [neighbor.GetAtomMapNum()
         for neighbor in atom.GetNeighbors()] for atom in orig_mol.GetAtoms()}
-
-
-def clear_numbering(smiles):
-    """
-    Clear atom numbering in the SMILES representation.
-
-    Args:
-        smiles (str): The SMILES representation of the molecule.
-
-    Returns:
-        str or None: The SMILES representation of the molecule with cleared atom numbering,
-        or None if an error occurs during processing.
-    """
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
-        return Chem.MolToSmiles(mol)
-    except:
-        return None
-
-
-def generate_subsets_bit(nums):
-    """
-    Generate all possible subsets of a set using bitwise operations.
-
-    Args:
-        nums (list): A list of integers representing the set.
-
-    Returns:
-        list: A list of lists containing all possible subsets of the input set.
-
-    Note:
-        This function generates all possible subsets of a given set of integers using bitwise 
-        operations. It iterates through all possible combinations of elements using a bitmask, 
-        where each bit represents whether the corresponding element is included in the subset 
-        or not. The resulting subsets are stored in a list of lists and returned.
-    """
-    subsets = []
-    n = len(nums)
-
-    for i in range(2 ** n):
-        subset = []
-        for j in range(n):
-            if (i >> j) & 1:
-                subset.append(nums[j])
-        subsets.append(subset)
-
-    return subsets
