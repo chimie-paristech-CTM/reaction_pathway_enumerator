@@ -123,9 +123,6 @@ class Reaction:
             if len(editable_mol.GetAtoms()) != len(Chem.AddHs(Chem.MolFromSmiles(Chem.MolToSmiles(editable_mol))).GetAtoms()):
                 return None
         except Exception as e:
-            print(self.orig_path[0].num_electrons + self.orig_path[-1].num_electrons)
-            print(self.orig_path)
-            print(self.modified_path)
             print(e)
             print(Chem.MolToSmiles(editable_mol))
 
