@@ -84,7 +84,7 @@ class Reaction:
     
     # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
     # For now you can leave this however since this is inherently problematic with SMILES.
-    def generate_smiles(self):
+    def generate_smiles(self, allow_zwitterions=True):
         """
         Generate an output SMILES string.
 
@@ -126,7 +126,15 @@ class Reaction:
             print(e)
             print(Chem.MolToSmiles(editable_mol))
 
-        return Chem.MolToSmiles(editable_mol)
+
+        final_smiles = Chem.MolToSmiles(editable_mol)
+
+        # final filter in case you don't want zwitterions
+        if not allow_zwitterions:
+            if '+' in final_smiles and '-' in final_smiles:
+                return None
+
+        return final_smiles
 
     def invert_vo_populations(self, vo1, vo2):
         """
@@ -165,7 +173,6 @@ class OrbitalGraph:
 
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
-        self.potential_interfragment_interactions = {}
         self.secondary_interactions = {}
 
         self.add_vos_to_graph()
@@ -204,8 +211,6 @@ class OrbitalGraph:
                 self.existing_interactions[vo.identifier] = set()
             if vo not in self.potential_intrafragment_interactions:
                 self.potential_intrafragment_interactions[vo.identifier] = set()
-            if vo not in self.potential_interfragment_interactions:
-                self.potential_interfragment_interactions[vo.identifier] = set()
             if vo not in self.secondary_interactions:
                 self.secondary_interactions[vo.identifier] = set()
         
@@ -251,9 +256,6 @@ class OrbitalGraph:
                         self.add_potential_intrafragment_interaction(vo1, vo2)
                     else:
                         continue
-                # if different fragments -> potential interfragment interactions
-                else:
-                    self.add_potential_interfragment_interaction(vo1, vo2)
     
     def add_potential_intrafragment_interaction(self, source, destination):
         """
@@ -266,18 +268,6 @@ class OrbitalGraph:
         if source.identifier in self.potential_intrafragment_interactions and destination.identifier in self.potential_intrafragment_interactions \
             and destination not in self.potential_intrafragment_interactions[source.identifier]:
             self.potential_intrafragment_interactions[source.identifier].add(destination)
-
-    def add_potential_interfragment_interaction(self, source, destination):
-        """
-        Add a potential intrafragment interaction between valence orbitals.
-
-        Args:
-            source: The source valence orbital.
-            destination: The destination valence orbital.
-        """
-        if source.identifier in self.potential_interfragment_interactions and destination.identifier in self.potential_interfragment_interactions \
-            and destination not in self.potential_interfragment_interactions[source.identifier]:
-            self.potential_interfragment_interactions[source.identifier].add(destination)
 
     # TODO: complete this once you have integrated NBO read-in/-out
     def add_secondary_interaction(self, source, destination):
@@ -299,9 +289,6 @@ class OrbitalGraph:
 
     def get_intrafragment_neighbors(self, vo):
         return self.potential_intrafragment_interactions.get(vo.identifier, [])
-        
-    def get_interfragment_neighbors(self, vo):
-        return self.potential_interfragment_interactions.get(vo.identifier, [])
 
     def construct_delocalized_systems(self):
         """
@@ -440,7 +427,6 @@ class OrbitalGraph:
 
         return all_intrafragment_paths
     
-    # TODO: what if two lone pairs get selected as end-points???
     # TODO: shouldn't you also include an inversion of the final intrafragment path (in a separate loop at the end)???? 
     # because right now, you will never get extensions with anything longer than a single lone pair/empty orbital at the end -- though you do have the symmetric path
     def get_interfragment_paths(self, all_intrafragment_paths):
@@ -553,7 +539,7 @@ class OrbitalGraph:
         return products
 
     def __str__(self) -> str:
-        return f'intra: {self.potential_intrafragment_interactions}; inter:{self.potential_interfragment_interactions}'
+        return f'existing:{self.existing_interactions}; secondary:{self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
 
 
 class ReactingSystem:
