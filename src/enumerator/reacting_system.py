@@ -163,7 +163,7 @@ class Reaction:
 class OrbitalGraph:
     """ 
     A class corresponding to an abstract graph, where nodes correspond to VOs, 
-    and edges correspond to existing and potential (intra-/interfragment) interactions. 
+    and edges correspond to existing and potential intrafragment interactions. 
     """
     def __init__(self, localized_configuration, numbered_smiles, orig_mol):
         self.localized_configuration = localized_configuration
@@ -474,6 +474,8 @@ class OrbitalGraph:
 
         return all_interfragment_paths
 
+
+    # TODO: I think you should combine multiple paths here, otherwise you only have neighbors combining...
     def get_intramolecular_paths(self, max_length=3):
         """
         If only a single fragment in the reacting system, generate intramolecular reactions by determining extra long fragments, 
@@ -486,30 +488,28 @@ class OrbitalGraph:
             list: A list of lists, where each inner list represents a set of valence orbitals forming 
             a full intramolecular path.
         """
-
-        if len(self.numbered_smiles.split('.')) > 1:
-            print('Multiple fragments detected in the reacting system, please provide a single molecule to generate intramolecular paths')
-            return None
-
-        intramolecular_paths = [path for path in self.get_intrafragment_paths(max_length=max_length)]
+        intramolecular_paths = self.get_intrafragment_paths(max_length=max_length)[0]
         terminal_fragment_paths = [path.copy()[::-1] for path in intramolecular_paths if len(path) <= 3] # inverse the terminal paths
 
         extra_paths = [] # you want to end the paths that started with a vo that cannot be reconnected
         for path in intramolecular_paths:
             if path[0].num_electrons != 1:
                 for terminal_path in terminal_fragment_paths:
-                    extra_paths.append(path.copy())
-                    extra_paths[-1].append(terminal_path)
-        intramolecular_paths += extra_paths 
+                    if path[0].num_electrons + terminal_path[-1].num_electrons != 0 and \
+                          path[0].num_electrons + terminal_path[-1].num_electrons != 4: # only add path if net flow of electrons possible
+                        extra_paths.append(path.copy())
+                        extra_paths[-1] += terminal_path
+        intramolecular_paths += extra_paths
 
         return intramolecular_paths
 
-    def generate_products(self, all_paths):
+    def generate_products(self, all_paths, allow_zwitterions):
         """
         Generate unique product SMILES representations from a list of reaction paths.
 
         Args:
             all_paths (list): A list of reaction paths.
+            allow_zwitterions (bool): A bool indicating whether zwitterionic SMILES are considered
 
         Returns:
             list: A list containing unique product SMILES representations.
@@ -528,7 +528,7 @@ class OrbitalGraph:
             else:
                 reaction = Reaction(self.orig_mol, path, self.existing_interactions, conventional_path=False) 
 
-            smiles = reaction.generate_smiles()
+            smiles = reaction.generate_smiles(allow_zwitterions=allow_zwitterions)
 
             if smiles != None:
                 smiles_without_numbering = clear_numbering(smiles)
@@ -596,30 +596,42 @@ class ReactingSystem:
         """ Set up an orbital graph for the molecule."""
         return OrbitalGraph(self.localized_configuration, self.numbered_smiles, self.orig_mol)
 
-    def generate_reaction_paths(self):
+    def generate_reaction_paths(self, idx_list, max_length):
         """
         Generate reaction paths for the molecule.
+
+        Args:
+            idx_list (list): indices of the orbital systems that need to be included in paths.
+            max_length (int): the maximal number of bonding systems that can be combined on a single fragment.
 
         Returns:
             tuple: A tuple containing two lists. The first list contains interfragment paths,
             and the second list contains modified reaction paths.
         """
-        intrafragment_paths = self.orbital_graph.get_intrafragment_paths()
-        interfragment_paths = self.orbital_graph.get_interfragment_paths(intrafragment_paths)
+        if len(self.numbered_smiles.split('.')) > 1:
+            print('Determining intermolecular reactions...')
+            intrafragment_paths = self.orbital_graph.get_intrafragment_paths(max_length=max_length)
+            interfragment_paths = self.orbital_graph.get_interfragment_paths(intrafragment_paths)
+            #interfragment_paths = filter_paths(idx_list)
+            return interfragment_paths
+        else:
+            print('Determining intramolecular reactions...')
+            intramolecular_paths = self.orbital_graph.get_intramolecular_paths(max_length=max_length)
+            #interfragment_paths = filter_paths(idx_list)
+            return intramolecular_paths
 
-        return interfragment_paths
-
-    def generate_products(self, original_paths):
+    def generate_products(self, original_paths, allow_zwitterions):
         """
         Generate products based on reaction paths.
 
         Args:
             original_paths (list): List of original reaction paths.
+            allow_zwitterions (bool): A bool indicating whether zwitterionic SMILES are considered
 
         Returns:
             list: List of generated products.
         """
-        products = self.orbital_graph.generate_products(original_paths)
+        products = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
         return products
 
 

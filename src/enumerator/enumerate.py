@@ -14,7 +14,9 @@ def get_args():
     parser.add_argument("--idx-list", nargs="+", default=None)
     parser.add_argument("--solvent", action="store", default=None)
     parser.add_argument("--n-bonding-systems", action="store", type=int, default=4)
-    
+    parser.add_argument("--allow-zwitterions", action="store_true", default=False)
+    parser.add_argument("--print-configuration", action="store_true", default=False)
+
     return parser.parse_args()
 
 
@@ -24,28 +26,33 @@ def get_thermodynamically_feasible_products():
     logging.basicConfig(
         filename=f"test.log", encoding="utf-8", level=logging.DEBUG
     )
-    products = enumerate_potential_products(
-        args.smiles, args.idx_list, args.n_bonding_systems
-    )
-    print(products)
-    print(len(products))
-    product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
+    if args.print_configuration:
+        reacting_system = ReactingSystem(args.smiles)
+        for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
+            print(orbital_system)
+    else:
+        products = enumerate_potential_products(
+            args.smiles, args.idx_list, args.n_bonding_systems, args.allow_zwitterions
+        )
+        print(products)
+        print(len(products))
+        product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
 
-    logging.info(product_energies_dict)
-    logging.info(len(product_energies_dict))
-    feasible_products_dict = dict(
-        (k, product_energies_dict[k])
-        for k in product_energies_dict.keys()
-        if product_energies_dict[k] < 0
-    )
+        logging.info(product_energies_dict)
+        logging.info(len(product_energies_dict))
+        feasible_products_dict = dict(
+            (k, product_energies_dict[k])
+            for k in product_energies_dict.keys()
+            if product_energies_dict[k] < 0
+        )
 
-    print(feasible_products_dict)
-    print(len(feasible_products_dict))
+        print(feasible_products_dict)
+        print(len(feasible_products_dict))
 
-    print(len(product_energies_dict))
+        print(len(product_energies_dict))
 
 
-def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
+def enumerate_potential_products(smiles, idx_list, n_bonding_systems, allow_zwitterions):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -57,8 +64,8 @@ def enumerate_potential_products(smiles, idx_list=None, n_bonding_systems=4):
         list: A list of product SMILES.
     """
     reacting_system = ReactingSystem(smiles)
-    original_paths = reacting_system.generate_reaction_paths()
-    products = reacting_system.generate_products(original_paths)
+    original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=n_bonding_systems)
+    products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
     return products
 
