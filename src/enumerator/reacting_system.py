@@ -39,9 +39,9 @@ class Reaction:
 
     def invert_vo_populations_to_complete_modified_path(self):
         """
-        This method inverses VO populations if VOs not at the endpoints, but still in the first or last orbital system, 
+        This method inverses VO populations if VOs not at the endpoints of a path, but still in the first or last orbital system, 
         contain a number of electrons differing from 1 (reflecting the inherent delocalization present in these systems). 
-        In case of 2c3e/2c1e, the first/list vo is set inactive, since the actual reorganization of the path will need to 
+        In case of 2c3e/2c1e, the first/last vo is set inactive, since the actual reorganization of the path will need to 
         start from the second (to last) vo.
         """
         # 3c situations
@@ -83,7 +83,7 @@ class Reaction:
             self.modified_path[end_idx].num_electrons = 1
     
     # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
-    # For now you can leave this however since this is inherently problematic with SMILES.
+    # For now you can ignore this however since this is inherently problematic with SMILES.
     def generate_smiles(self, allow_zwitterions=True):
         """
         Generate an output SMILES string.
@@ -100,7 +100,7 @@ class Reaction:
                 init_charge = editable_mol.GetAtomWithIdx(vo.atom_idx - 1).GetFormalCharge()
                 new_charge = init_charge - (modified_vo.num_electrons - vo.num_electrons)
                 editable_mol.GetAtomWithIdx(vo.atom_idx - 1).SetFormalCharge(new_charge)
-    
+
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
             if self.orig_path[i+1] in self.existing_interactions[vo.identifier]:
@@ -124,8 +124,8 @@ class Reaction:
                 return None
         except Exception as e:
             print(e)
+            print(self.orig_path, self.modified_path)
             print(Chem.MolToSmiles(editable_mol))
-
 
         final_smiles = Chem.MolToSmiles(editable_mol)
 
@@ -138,7 +138,7 @@ class Reaction:
 
     def invert_vo_populations(self, vo1, vo2):
         """
-        Switch the electronic populations of two VOs
+        Switch the electronic populations of two VOs.
         """
         tmp = vo1.num_electrons
         vo1.set_population(vo2.num_electrons)
@@ -383,7 +383,7 @@ class OrbitalGraph:
                     new_path.append(vo)
                     new_path.append(partner_vos[0])
                 elif vo.num_electrons == 1 and partner_vos[0].num_electrons != 1: # 2c1e/2c3e
-                    new_path.append(partner_vos[0]) # put the other vo first so that you can leave this out during repairing
+                    new_path.append(partner_vos[0]) # put the other vo first so that you can leave this out during re-pairing (it will be an end-point)
                     new_path.append(vo) 
 
                 if len(self.get_interacting_orbitals(partner_vos[0])) == 2: # 3c systems
@@ -396,8 +396,8 @@ class OrbitalGraph:
 
         # iterate through the intrafragment paths
         for fragment_paths in all_intrafragment_paths:
-            # initialize -- at first, we consider plausible extensions to each mono-orbital system path
-            paths_to_extend = fragment_paths
+            # initialize -- we consider plausible extensions in every fragment (make a shallow copy so that take a static snapshot of the fragment paths at first)
+            paths_to_extend = fragment_paths.copy()
             while len(paths_to_extend) > 0:
                 new_paths_to_extend = []
                 for path in paths_to_extend:
@@ -416,19 +416,16 @@ class OrbitalGraph:
                                 new_path.append(neighbor)
                                 new_path.append(partners_of_neighbor[0])
                                 fragment_paths.append(new_path)
-                                if self.get_number_of_delocalized_orbital_systems(path) < max_length:
+                                if self.get_number_of_delocalized_orbital_systems(new_path) < max_length:
                                     new_paths_to_extend.append(new_path)
                                 else:
                                     continue
                             else:
                                 continue # no crossings within path
-                    
                 paths_to_extend = new_paths_to_extend
 
         return all_intrafragment_paths
     
-    # TODO: shouldn't you also include an inversion of the final intrafragment path (in a separate loop at the end)???? 
-    # because right now, you will never get extensions with anything longer than a single lone pair/empty orbital at the end -- though you do have the symmetric path
     def get_interfragment_paths(self, all_intrafragment_paths):
         """    
         Get all possible interfragment paths by permuting fragment order and combining intrafragment paths.
@@ -474,33 +471,49 @@ class OrbitalGraph:
 
         return all_interfragment_paths
 
-
-    # TODO: I think you should combine multiple paths here, otherwise you only have neighbors combining...
-    def get_intramolecular_paths(self, max_length=3):
+    # TODO: finalize this!!!!
+    def get_intramolecular_paths(self, max_length=2):
         """
         If only a single fragment in the reacting system, generate intramolecular reactions by determining extra long fragments, 
         potentially adding terminal fragments (if path started with a VO that cannot be reconnected).
 
         Args:
-            max_length (int, optional): The maximum length of paths to consider. Defaults to 3.
+            max_length (int, optional): The maximum length of paths to consider. Defaults to 2.
 
         Returns:
             list: A list of lists, where each inner list represents a set of valence orbitals forming 
             a full intramolecular path.
         """
-        intramolecular_paths = self.get_intrafragment_paths(max_length=max_length)[0]
-        terminal_fragment_paths = [path.copy()[::-1] for path in intramolecular_paths if len(path) <= 3] # inverse the terminal paths
+        intrafragment_paths = self.get_intrafragment_paths(max_length=max_length)[0]
 
-        extra_paths = [] # you want to end the paths that started with a vo that cannot be reconnected
+        terminal_fragment_paths = [path.copy()[::-1] for path in intrafragment_paths if path[0].num_electrons != 1]
+
+        intramolecular_paths = intrafragment_paths.copy()
+
+        # For now, we only consider combinations of up to 3 intrafragment paths
+        for _ in range(2):
+            extra_paths = []
+            for current_path in intramolecular_paths:
+                for extension in intrafragment_paths:
+                    if len(extension) % 2 != 0:
+                        continue # you only want paths that can be further extended
+                    extended_path = current_path + extension
+                    # only keep non-intercrossing paths
+                    if len(set([vo.atom_idx for vo in extended_path])) == len([vo.atom_idx for vo in extended_path]):
+                        extra_paths.append(extended_path)
+                    else:
+                        continue
+            intramolecular_paths += extra_paths
+
+        extra_paths = []
         for path in intramolecular_paths:
             if path[0].num_electrons != 1:
-                for terminal_path in terminal_fragment_paths:
-                    if path[0].num_electrons + terminal_path[-1].num_electrons != 0 and \
-                          path[0].num_electrons + terminal_path[-1].num_electrons != 4: # only add path if net flow of electrons possible
-                        extra_paths.append(path.copy())
-                        extra_paths[-1] += terminal_path
+                for terminal_fragment_path in terminal_fragment_paths:
+                    if path[0].num_electrons + terminal_fragment_path[-1].num_electrons == 2 and \
+                        (len(set([vo.atom_idx for vo in extended_path])) == len([vo.atom_idx for vo in extended_path])):
+                        extra_paths.append(path + terminal_fragment_path)
         intramolecular_paths += extra_paths
-
+        
         return intramolecular_paths
 
     def generate_products(self, all_paths, allow_zwitterions):

@@ -13,7 +13,7 @@ def get_args():
     parser.add_argument("--smiles", action="store", type=str)
     parser.add_argument("--idx-list", nargs="+", default=None)
     parser.add_argument("--solvent", action="store", default=None)
-    parser.add_argument("--n-bonding-systems", action="store", type=int, default=4)
+    parser.add_argument("--max-length", action="store", type=int, default=2)
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
     parser.add_argument("--print-configuration", action="store_true", default=False)
 
@@ -32,7 +32,7 @@ def get_thermodynamically_feasible_products():
             print(orbital_system)
     else:
         products = enumerate_potential_products(
-            args.smiles, args.idx_list, args.n_bonding_systems, args.allow_zwitterions
+            args.smiles, args.idx_list, args.max_length, args.allow_zwitterions
         )
         print(products)
         print(len(products))
@@ -52,19 +52,20 @@ def get_thermodynamically_feasible_products():
         print(len(product_energies_dict))
 
 
-def enumerate_potential_products(smiles, idx_list, n_bonding_systems, allow_zwitterions):
+def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
-        smiles (str): A SMILES string
+        smiles (str): A SMILES string.
         idx_list (list, optional): A list of bonding system indices. Defaults to None.
-        n_bonding_systems (int, optional): The maximum number of active bonding systems. Defaults to 4.
+        max_length (int, optional): The maximum number of orbital systems in a single fragment.
+        allow_zwitterions (bool, optional): Whether or not to allow the generation of zwitterions
 
     Returns:
         list: A list of product SMILES.
     """
     reacting_system = ReactingSystem(smiles)
-    original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=n_bonding_systems)
+    original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
     return products
