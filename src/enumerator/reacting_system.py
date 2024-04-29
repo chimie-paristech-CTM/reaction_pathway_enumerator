@@ -625,12 +625,12 @@ class ReactingSystem:
             print('Determining intermolecular reactions...')
             intrafragment_paths = self.orbital_graph.get_intrafragment_paths(max_length=max_length)
             interfragment_paths = self.orbital_graph.get_interfragment_paths(intrafragment_paths)
-            #interfragment_paths = filter_paths(idx_list)
+            interfragment_paths = self.filter_paths(interfragment_paths, idx_list)
             return interfragment_paths
         else:
             print('Determining intramolecular reactions...')
             intramolecular_paths = self.orbital_graph.get_intramolecular_paths(max_length=max_length)
-            #interfragment_paths = filter_paths(idx_list)
+            intramolecular_paths = self.filter_paths(intramolecular_paths, idx_list)
             return intramolecular_paths
 
     def generate_products(self, original_paths, allow_zwitterions):
@@ -646,7 +646,41 @@ class ReactingSystem:
         """
         products = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
         return products
+    
+    def filter_paths(self, paths, idx_list):
+        """
+        Filter paths based on the presence of specific elements.
 
+        This method filters paths based on whether all the elements in the set
+        of VOs extracted from the active orbital systems
+        corresponding to the provided idx-list are present in each path.
+
+        Args:
+            paths (list of lists): A list of paths, where each path is represented
+                as a list of elements.
+            idx_list (list): A list of indices corresponding to active orbital
+                systems.
+
+        Returns:
+            list of lists: A filtered list of paths containing only those paths
+                that have all the Virtual Objects (VOs) extracted from the
+                specified active orbital systems.
+        """
+        vo_list = []
+        for orbital_system in self.orbital_graph.localized_configuration.active_orbital_systems_list:
+            if orbital_system.idx in idx_list:
+                vo_list += orbital_system.get_vos()
+
+        filtered_paths = []
+        vo_set = set(vo_list)
+        for path in paths:
+            if vo_set.issubset(set(path)):
+                filtered_paths.append(path)
+            else:
+                continue
+        
+        return filtered_paths
+    
 
 def get_neighbors_dict(orig_mol):
     """

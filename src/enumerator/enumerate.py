@@ -11,7 +11,7 @@ HARTREE_TO_EV = 27.2114
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--smiles", action="store", type=str)
-    parser.add_argument("--idx-list", nargs="+", default=None)
+    parser.add_argument("--idx-list", nargs="+", default=None, type=int)
     parser.add_argument("--solvent", action="store", default=None)
     parser.add_argument("--max-length", action="store", type=int, default=2)
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
