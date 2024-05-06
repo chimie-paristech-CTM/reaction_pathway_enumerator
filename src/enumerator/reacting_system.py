@@ -113,7 +113,7 @@ class Reaction:
             editable_mol = increase_bond_order(editable_mol, self.orig_path[0], self.orig_path[-1]) # finish covalent path
         elif (not self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired()) and \
                 self.orig_path[start_idx].num_electrons == 1 and self.modified_path[end_idx].num_electrons == 1: # fix radical sites
-            editable_mol = fix_radical_counts_at_endpoints_path(editable_mol, self.orig_path[start_idx], self.orig_path[end_idx])
+                editable_mol = fix_radical_counts_at_endpoints_path(editable_mol, self.orig_path[start_idx], self.orig_path[end_idx])
         elif (not self.orig_path[end_idx].is_paired() and self.orig_path[start_idx].is_paired()) and \
             self.orig_path[end_idx].num_electrons == 1 and self.modified_path[start_idx].num_electrons == 1:
                 editable_mol = fix_radical_counts_at_endpoints_path(editable_mol, self.orig_path[end_idx], self.orig_path[start_idx]) 
@@ -131,7 +131,8 @@ class Reaction:
 
         # final filter in case you don't want zwitterions
         if not allow_zwitterions:
-            if '+' in final_smiles and '-' in final_smiles:
+            init_smiles = Chem.MolToSmiles(self.orig_mol)
+            if final_smiles.count('+') > init_smiles.count('+'):
                 return None
 
         return final_smiles
@@ -471,7 +472,6 @@ class OrbitalGraph:
 
         return all_interfragment_paths
 
-    # TODO: finalize this!!!!
     def get_intramolecular_paths(self, max_length=2):
         """
         If only a single fragment in the reacting system, generate intramolecular reactions by determining extra long fragments, 
@@ -485,9 +485,7 @@ class OrbitalGraph:
             a full intramolecular path.
         """
         intrafragment_paths = self.get_intrafragment_paths(max_length=max_length)[0]
-
         terminal_fragment_paths = [path.copy()[::-1] for path in intrafragment_paths if path[0].num_electrons != 1]
-
         intramolecular_paths = intrafragment_paths.copy()
 
         # For now, we only consider combinations of up to 3 intrafragment paths
@@ -552,11 +550,11 @@ class OrbitalGraph:
         return products
 
     def __str__(self) -> str:
-        return f'existing:{self.existing_interactions}; secondary:{self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
+        return f'existing: {self.existing_interactions}; secondary: {self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
 
 
 class ReactingSystem:
-    """A class corresponding to reacting systems (can consist of multiple molecules)"""
+    """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
     def __init__(self, smiles: str):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
@@ -625,12 +623,14 @@ class ReactingSystem:
             print('Determining intermolecular reactions...')
             intrafragment_paths = self.orbital_graph.get_intrafragment_paths(max_length=max_length)
             interfragment_paths = self.orbital_graph.get_interfragment_paths(intrafragment_paths)
-            interfragment_paths = self.filter_paths(interfragment_paths, idx_list)
+            if idx_list is not None:
+                interfragment_paths = self.filter_paths(interfragment_paths, idx_list)
             return interfragment_paths
         else:
             print('Determining intramolecular reactions...')
             intramolecular_paths = self.orbital_graph.get_intramolecular_paths(max_length=max_length)
-            intramolecular_paths = self.filter_paths(intramolecular_paths, idx_list)
+            if idx_list is not None:
+                intramolecular_paths = self.filter_paths(intramolecular_paths, idx_list)
             return intramolecular_paths
 
     def generate_products(self, original_paths, allow_zwitterions):
