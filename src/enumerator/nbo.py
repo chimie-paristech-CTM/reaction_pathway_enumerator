@@ -4,10 +4,16 @@ from autode.wrappers.G16 import g16
 import logging
 import os
 import subprocess
+import re
 
 
 def exec_nbo_calculation(idx, smiles, g16_path, n_cores=8, basis_set='def2svp', functional='pbe1pbe'):
 
+    cwd = os.getcwd()
+    working_directory = os.path.join(cwd, 'calc')
+    if not os.path.exists(working_directory):
+        os.makedirs(working_directory)
+    os.chdir(working_directory)
     molecule = Molecule(smiles=smiles, name=f"r{idx}")
     g16.keywords.set_functional(functional)
     g16.keywords.set_opt_basis_set(basis_set)
@@ -17,6 +23,7 @@ def exec_nbo_calculation(idx, smiles, g16_path, n_cores=8, basis_set='def2svp', 
     molecule.optimise(method=g16)
     generate_input_gaussian(molecule, n_cores, basis_set, functional)
     run_g16(g16_path, molecule.name)
+    os.chdir(cwd)
 
 
 def generate_input_gaussian(molecule, n_cores, basis_set='def2svp', functional='m062x'):
@@ -60,3 +67,46 @@ def check_normal_termination(name):
             return True
 
     return False
+
+
+def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
+
+    pattern = r'\[(.*?)\]'
+    smiles_elements = re.findall(pattern, numbered_smiles)
+
+    sorted_smiles = sorted(smiles_elements, key=(lambda x: int(x.split(':')[-1])))
+
+    filename = f"r{idx_reac}_NBO.log"
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+
+    line_0 = " SECOND ORDER PERTURBATION THEORY ANALYSIS OF FOCK MATRIX IN NBO BASIS\n"
+    line_1 = " NATURAL BOND ORBITALS (Summary):\n"
+    idx_0 = lines.index(line_0)
+    idx_1 = lines.index(line_1)
+
+    interactions = []
+
+    for line in lines[idx_0 + 7: idx_1 - 2]:
+        if line.startswith(' within unit'):
+            continue
+
+        if float(line.split()[-3]) > threshold:
+
+            if line[7:9] == "LP":
+                donor = (int(line[17:19]),)
+            elif line[7:9] == "BD":
+                donor = (int(line[17:19]), int(line[23:25]))
+
+            if line[35:38] == 'BD*':
+                acceptor = (int(line[45:47]), int(line[51:53]))
+            elif line[35:38] == 'RY ':
+                acceptor = (int(line[45:47]),)
+
+            donor_smiles = [sorted_smiles[idx_atom - 1].split(':')[-1] for idx_atom in donor]
+            acceptor_smiles = [sorted_smiles[idx_atom - 1].split(':')[-1] for idx_atom in acceptor]
+
+            interactions.append((donor_smiles, acceptor_smiles))
+
+    return interactions
+

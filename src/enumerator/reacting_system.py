@@ -1,3 +1,5 @@
+import pdb
+
 from rdkit import Chem
 import re
 from itertools import permutations, product
@@ -7,7 +9,7 @@ from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond
 from enumerator.utils import clear_numbering, get_neighbors_dict
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
 from enumerator.localized_configuration import Atom, LocalizedConfiguration
-from enumerator.nbo import exec_nbo_calculation
+from enumerator.nbo import exec_nbo_calculation, extract_2nd_interaction_dict
 
 from copy import deepcopy
 
@@ -173,11 +175,11 @@ class OrbitalGraph:
         self.numbered_smiles = numbered_smiles
         self.orig_mol = orig_mol
 
-        self.get_nbo()
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
         self.secondary_interactions = {}
 
+        #self.get_nbo()
         self.add_vos_to_graph()
         self.add_existing_interactions()
         self.add_potential_interactions()
@@ -551,12 +553,13 @@ class OrbitalGraph:
 
         return products
 
-    # TODO: organize directories of execution
     def get_nbo(self):
         """Execute a NBO calculation with G16"""
         smiles_list = self.numbered_smiles.split('.')
+        interactions = []
         for idx, smiles in enumerate(smiles_list):
             exec_nbo_calculation(idx, smiles, g16_path='/opt/gaussian/g16/C01/g16')
+            interactions.append(extract_2nd_interaction_dict(idx, smiles))
 
     def __str__(self) -> str:
         return f'existing: {self.existing_interactions}; secondary: {self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
