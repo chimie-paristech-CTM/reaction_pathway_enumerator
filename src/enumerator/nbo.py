@@ -5,6 +5,17 @@ import logging
 import os
 import subprocess
 import re
+import sys
+
+
+def get_nbo(smiles):
+    """Execute a NBO calculation with G16"""
+    smiles_list = smiles.split('.')
+    dict_nbo_lines = {}
+    for idx, smi in enumerate(smiles_list):
+        nbo_lines = exec_nbo_calculation(idx, smi, g16_path='/opt/gaussian/g16/C01/g16')
+        dict_nbo_lines[idx] = nbo_lines
+    return dict_nbo_lines
 
 
 def exec_nbo_calculation(idx, smiles, g16_path, n_cores=8, basis_set='def2svp', functional='pbe1pbe'):
@@ -23,7 +34,16 @@ def exec_nbo_calculation(idx, smiles, g16_path, n_cores=8, basis_set='def2svp', 
     molecule.optimise(method=g16)
     generate_input_gaussian(molecule, n_cores, basis_set, functional)
     run_g16(g16_path, molecule.name)
-    os.chdir(cwd)
+    try:
+        if normal_termination(f"{molecule.name}_NBO.log"):
+            nbo_lines = extract_nbo_lines(f"{molecule.name}_NBO.log")
+            os.chdir(cwd)
+            return nbo_lines
+        else:
+            raise CalculationError(f"{molecule.name}_NBO.log")
+
+    except CalculationError:
+        sys.exit()
 
 
 def generate_input_gaussian(molecule, n_cores, basis_set='def2svp', functional='m062x'):
@@ -55,9 +75,8 @@ def run_g16(g16_path, name):
         subprocess.run(f"{command_line}", shell=True, stdout=out, stderr=out)
 
 
-def check_normal_termination(name):
+def normal_termination(name):
     """Check for normal termination in a Gaussian output"""
-    name += '_NBO.log'
 
     with open(name, 'r') as file:
         lines = file.readlines()[::-1]
@@ -67,6 +86,32 @@ def check_normal_termination(name):
             return True
 
     return False
+
+
+def extract_nbo_lines(name):
+    """Extract NBO lines"""
+
+    with open(name, 'r') as file:
+        lines = file.readlines()
+
+    line_0 = "Perform NBO analysis...executing"
+    line_1 = "NBO analysis completed in"
+
+    append = False
+    nbo_lines = []
+
+    for line in lines:
+
+        if line_1 in line:
+            break
+
+        if line_0 in line:
+            append = True
+
+        if append:
+            nbo_lines.append(line)
+
+    return nbo_lines
 
 
 def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
@@ -109,4 +154,11 @@ def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
             interactions.append((donor_smiles, acceptor_smiles))
 
     return interactions
+
+
+class CalculationError(Exception):
+    """Custom exception for calculation errors."""
+    def __init__(self, name):
+        message = f'G16 calculation not finished for {name} ...'
+        super().__init__(message)
 
