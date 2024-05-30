@@ -8,8 +8,8 @@ from tqdm import tqdm
 from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order
 from enumerator.utils import clear_numbering, get_neighbors_dict
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
-from enumerator.localized_configuration import Atom, LocalizedConfiguration
-from enumerator.nbo import get_nbo
+from enumerator.localized_configuration import Atom, LocalizedConfiguration, LocalizedConfigurationNBO
+from enumerator.utils_nbo import get_nbo
 
 from copy import deepcopy
 
@@ -568,6 +568,7 @@ class ReactingSystem:
 
         if nbo:
             self.nbo_lines = get_nbo(self.numbered_smiles)
+            self.localized_configuration = self.set_up_localized_configuration_nbo()
         else:
             self.localized_configuration = self.set_up_localized_configuration()
             self.orbital_graph = self.set_up_orbital_graph()
@@ -608,6 +609,10 @@ class ReactingSystem:
     def set_up_localized_configuration(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
         return LocalizedConfiguration(self.orig_mol, self.atoms)
+
+    def set_up_localized_configuration_nbo(self):
+        """ Set up a localized configuration with localized orbital systems for the molecule."""
+        return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""
