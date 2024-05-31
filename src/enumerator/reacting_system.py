@@ -6,9 +6,10 @@ from itertools import permutations, product
 from tqdm import tqdm
 
 from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order
-from enumerator.utils import clear_numbering, get_neighbors_dict
+from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smiles
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
-from enumerator.localized_configuration import Atom, LocalizedConfiguration, LocalizedConfigurationNBO
+from enumerator.localized_configuration import Atom, LocalizedConfiguration
+from enumerator.localized_configuration_NBO import AtomNBO, LocalizedConfigurationNBO
 from enumerator.utils_nbo import get_nbo
 
 from copy import deepcopy
@@ -564,12 +565,13 @@ class ReactingSystem:
         print(self.numbered_smiles)
 
         self.num_atoms = self.orig_mol.GetNumAtoms()
-        self.atoms = self.set_up_atoms()
 
         if nbo:
             self.nbo_lines = get_nbo(self.numbered_smiles)
+            self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
         else:
+            self.atoms = self.set_up_atoms()
             self.localized_configuration = self.set_up_localized_configuration()
             self.orbital_graph = self.set_up_orbital_graph()
 
@@ -580,7 +582,7 @@ class ReactingSystem:
         Chem.Kekulize(mol) # change to kekulized smiles to remove aromatic bonds
         [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
 
-        return mol, Chem.MolToSmiles(mol) 
+        return mol, Chem.MolToSmiles(mol)
 
     def set_up_atoms(self):
         """Process rdkit_atoms, add them to the editable version of the molecule, and create Atom objects."""
@@ -605,6 +607,55 @@ class ReactingSystem:
             )
 
         return atoms
+
+
+    def set_up_atoms_NBO(self):
+        """Process NBO atoms, add them to the editable version of the molecule, and create Atom objects."""
+        atoms = []
+        smiles_list = self.numbered_smiles.split('.')
+
+        for idx_smi, smiles in enumerate(smiles_list):
+            ordered_smiles = ordering_smiles(smiles)
+
+            line_0_nao = '  NAO Atom No lang   Type(AO)    Occupancy      Energy\n'
+            line_1_nao = ' Summary of Natural Population Analysis:\n'
+            idx_0 = self.nbo_lines[idx_smi].index(line_0_nao)
+            idx_1 = self.nbo_lines[idx_smi].index(line_1_nao)
+
+            for atom in ordered_smiles:
+                num_valence_orbitals = 0
+                atom_symbol, atom_idx = atom.split(':')
+                idx_atom = int(atom_idx)
+
+                for line in self.nbo_lines[idx_smi][idx_0 + 2: idx_1]:
+
+                    if line.isspace():
+                        continue
+                    if idx_atom == int(line[9:13]):
+                        if 'Val' == line[21:24]:
+                            num_valence_orbitals += 1
+                    elif idx_atom < int(line[9:13]):
+                        idx_0 = self.nbo_lines[idx_smi].index(line) - 2
+                        break
+
+                charge = float(self.nbo_lines[idx_smi][idx_1 + atom_idx + 5][11:19])
+                core, valence, rydberg, total = self.nbo_lines[idx_smi][idx_1 + atom_idx + 5][22:].split()
+                num_valence_electrons = int(float(valence) + float(rydberg) + charge)
+                atom_is_metal = (atom_symbol in metal_symbols)
+
+                atoms.append(
+                    AtomNBO(
+                        molecule=self,
+                        atom_type=atom_symbol,
+                        idx=atom_idx,
+                        num_valence_orbitals=num_valence_orbitals,
+                        num_valence_electrons=num_valence_electrons,
+                        metal=atom_is_metal
+                    )
+                )
+
+        return atoms
+
     
     def set_up_localized_configuration(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""

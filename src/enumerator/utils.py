@@ -1,5 +1,5 @@
 from rdkit import Chem
-
+import re
 
 def decrease_bond_order(editable_mol, vo1, vo2):
     current_bond = editable_mol.GetBondBetweenAtoms(
@@ -107,3 +107,22 @@ def clear_numbering(smiles):
         return Chem.MolToSmiles(mol)
     except:
         return None
+
+
+def ordering_smiles(numbered_smiles):
+    """
+    Ordering the numbered SMILES representation
+
+    Args:
+        numbered_smiles (str): The numbered SMILES representation of the molecule.
+
+    Returns:
+        list: The numbered SMILES representation of the molecule ordered by atom numbering.
+    """
+
+
+    pattern = r'\[(.*?)\]'
+    smiles_elements = re.findall(pattern, numbered_smiles)
+    ordered_smiles = sorted(smiles_elements, key=(lambda x: int(x.split(':')[-1])))
+
+    return ordered_smiles

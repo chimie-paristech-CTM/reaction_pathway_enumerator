@@ -4,8 +4,8 @@ from autode.wrappers.G16 import g16
 import logging
 import os
 import subprocess
-import re
 import sys
+from enumerator.utils import ordering_smiles
 
 
 def get_nbo(smiles):
@@ -18,7 +18,7 @@ def get_nbo(smiles):
     return dict_nbo_lines
 
 
-def exec_nbo_calculation(idx, smiles, g16_path, n_cores=8, basis_set='def2svp', functional='pbe1pbe'):
+def exec_nbo_calculation(idx, smiles, g16_path, n_cores=16, basis_set='def2svp', functional='pbe1pbe'):
 
     cwd = os.getcwd()
     working_directory = os.path.join(cwd, 'calc')
@@ -116,10 +116,7 @@ def extract_nbo_lines(name):
 
 def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
 
-    pattern = r'\[(.*?)\]'
-    smiles_elements = re.findall(pattern, numbered_smiles)
-
-    sorted_smiles = sorted(smiles_elements, key=(lambda x: int(x.split(':')[-1])))
+    ordered_smiles = ordering_smiles(numbered_smiles)
 
     filename = f"r{idx_reac}_NBO.log"
     with open(filename, 'r') as file:
@@ -148,8 +145,8 @@ def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
             elif line[35:38] == 'RY ':
                 acceptor = (int(line[45:47]),)
 
-            donor_smiles = [sorted_smiles[idx_atom - 1].split(':')[-1] for idx_atom in donor]
-            acceptor_smiles = [sorted_smiles[idx_atom - 1].split(':')[-1] for idx_atom in acceptor]
+            donor_smiles = [ordered_smiles[idx_atom - 1].split(':')[-1] for idx_atom in donor]
+            acceptor_smiles = [ordered_smiles[idx_atom - 1].split(':')[-1] for idx_atom in acceptor]
 
             interactions.append((donor_smiles, acceptor_smiles))
 
