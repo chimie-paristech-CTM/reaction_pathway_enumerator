@@ -19,8 +19,9 @@ ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co", 
-    "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
+                 "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
+upper_3rd_row_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
 
 class Reaction:
 
@@ -560,7 +561,7 @@ class OrbitalGraph:
 class ReactingSystem:
     """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
-    def __init__(self, smiles: str, nbo: bool = True):
+    def __init__(self, smiles: str, nbo: bool = False):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
         print(self.numbered_smiles)
 
@@ -591,7 +592,9 @@ class ReactingSystem:
         rd_periodic_table = Chem.GetPeriodicTable()
         for atom in self.orig_mol.GetAtoms():
             atom_is_metal = (atom.GetSymbol() in metal_symbols)
+            atom_is_upper_3rd_row = (atom.GetSymbol() in upper_3rd_row_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
+            num_valence_orbitals = get_num_bonds_atom(atom)  # every bond should have a valence orbital
             num_valence_electrons = (
                 rd_periodic_table.GetNOuterElecs(atom.GetSymbol())
                 - atom.GetFormalCharge()
@@ -601,8 +604,10 @@ class ReactingSystem:
                     molecule=self,
                     atom_type=atom.GetSymbol(),
                     idx=atom.GetAtomMapNum(),
+                    num_valence_orbitals=num_valence_orbitals,
                     num_valence_electrons=num_valence_electrons,
-                    metal=atom_is_metal
+                    metal=atom_is_metal,
+                    upper_3rd_row=atom_is_upper_3rd_row
                 )
             )
 
@@ -757,3 +762,11 @@ def get_neighbors_dict(orig_mol):
     """
     return {atom.GetAtomMapNum(): [neighbor.GetAtomMapNum()
         for neighbor in atom.GetNeighbors()] for atom in orig_mol.GetAtoms()}
+
+
+def get_num_bonds_atom(atom):
+    """ Get how many bonds an atom has. """
+    num_bonds = 0
+    for bond in atom.GetBonds():
+        num_bonds += int(bond.GetBondTypeAsDouble())
+    return num_bonds
