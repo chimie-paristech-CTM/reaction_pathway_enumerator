@@ -8,6 +8,24 @@ import sys
 from enumerator.utils import ordering_smiles
 
 
+def read_from_chk(smiles, dir_nbo):
+    """Extract the NBO from a directory"""
+    cwd = os.getcwd()
+    try:
+        os.chdir(dir_nbo)
+    except Exception as e:
+        print(f'Directory {dir_nbo} not existed.')
+        #sys.exit()
+
+    smiles_list = smiles.split('.')
+    dict_nbo_lines = {}
+    for idx, smi in enumerate(smiles_list):
+        nbo_lines = extract_nbo_lines(f"r{idx}_NBO.log")
+        dict_nbo_lines[idx] = nbo_lines
+    os.chdir(cwd)
+    return dict_nbo_lines
+
+
 def get_nbo(smiles):
     """Execute a NBO calculation with G16"""
     smiles_list = smiles.split('.')

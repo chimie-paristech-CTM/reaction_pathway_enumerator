@@ -10,7 +10,7 @@ from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smile
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
 from enumerator.localized_configuration import Atom, LocalizedConfiguration
 from enumerator.localized_configuration_NBO import AtomNBO, LocalizedConfigurationNBO
-from enumerator.utils_nbo import get_nbo
+from enumerator.utils_nbo import get_nbo, read_from_chk
 
 from copy import deepcopy
 
@@ -561,14 +561,17 @@ class OrbitalGraph:
 class ReactingSystem:
     """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
-    def __init__(self, smiles: str, nbo: bool = False):
+    def __init__(self, smiles: str, nbo: bool = False, nbo_dir=None):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
         print(self.numbered_smiles)
 
         self.num_atoms = self.orig_mol.GetNumAtoms()
 
         if nbo:
-            self.nbo_lines = get_nbo(self.numbered_smiles)
+            if nbo_dir:
+                self.nbo_lines = read_from_chk(self.numbered_smiles, nbo_dir)
+            else:
+                self.nbo_lines = get_nbo(self.numbered_smiles)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
         else:
@@ -630,16 +633,16 @@ class ReactingSystem:
             for atom in ordered_smiles:
                 num_valence_orbitals = 0
                 atom_symbol, atom_idx = atom.split(':')
-                idx_atom = int(atom_idx)
+                atom_idx = int(atom_idx)
 
                 for line in self.nbo_lines[idx_smi][idx_0 + 2: idx_1]:
 
                     if line.isspace():
                         continue
-                    if idx_atom == int(line[9:13]):
+                    if atom_idx == int(line[9:13]):
                         if 'Val' == line[21:24]:
                             num_valence_orbitals += 1
-                    elif idx_atom < int(line[9:13]):
+                    elif atom_idx < int(line[9:13]):
                         idx_0 = self.nbo_lines[idx_smi].index(line) - 2
                         break
 
