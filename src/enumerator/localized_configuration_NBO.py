@@ -2,8 +2,25 @@ import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 from enumerator.utils import ordering_smiles
+from rdkit import Chem
+
+metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
+    "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
+
+extra_valence_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
+
 
 # TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
+
+# TODO: What about 3rd row elements (and upper) when you have availability of d orbitals (P 5 bonds and S 6 bonds)
+def atom_to_num_VOs(atom_symbol: str) -> int:
+    """Returns the number of VOs the atom should be initialized with."""
+    if atom_symbol == "H" or atom_symbol == "He":
+        return 1 # s
+    elif atom_symbol in metal_symbols:
+        return 6 # s + d
+    else:
+        return 4 # s + p
 
 
 class ValenceOrbital:
@@ -49,14 +66,15 @@ class AtomNBO:
     """A class corresponding to individual atoms."""
 
     def __init__(
-            self, molecule: "Molecule", atom_type: str, idx: int, num_valence_electrons: int, num_valence_orbitals: int,
+            self, molecule: "Molecule", atom, atom_type: str, idx: int, num_valence_electrons: int,
             metal=False
     ):
         self.molecule = molecule
+        self.atom = atom
         self.atom_type = atom_type
         self.idx = idx
         self.valence_orbitals = []
-        self.num_valence_orbitals = num_valence_orbitals
+        self.num_valence_orbitals = atom_to_num_VOs(self.atom_type)
         self.num_valence_electrons = num_valence_electrons
         self.metal = metal
 
@@ -90,7 +108,7 @@ class AtomNBO:
 
 class LocalizedConfigurationNBO:
     def __init__(self, orig_mol, atoms, nbo_lines):
-        self.orbital_systems_list = self.set_up_localized_orbital_systems(orig_mol, atoms, nbo_lines)
+        self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(orig_mol, atoms, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
@@ -102,6 +120,7 @@ class LocalizedConfigurationNBO:
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
+        lone_pairs = dict()
 
         smiles_list = numbered_smiles.split('.')
 
@@ -127,6 +146,11 @@ class LocalizedConfigurationNBO:
                     else:
                         initial_bonds[atom_2_in_numbered_smiles] = initial_bonds.get(atom_2_in_numbered_smiles, []) + [
                             atom_1_in_numbered_smiles]
+
+                if 'LP' in line:
+                    atom = int(line[25:28])
+                    atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
+                    lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, 0) + 1
 
         # construct all the orbital systems
         orbital_system_idx = 0
@@ -161,7 +185,31 @@ class LocalizedConfigurationNBO:
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
 
-        return orbital_systems
+        rd_periodic_table = Chem.GetPeriodicTable()
+        new_mol = Chem.Mol()
+        ed_new_mol = Chem.RWMol(new_mol)
+        for atom in atoms:
+            z = atom.atom.GetAtomicNum()
+            symbol = atom.atom.GetSymbol()
+            new_atom_idx = ed_new_mol.AddAtom(Chem.Atom(z))
+            new_atom = ed_new_mol.GetAtomWithIdx(new_atom_idx)
+            new_atom.SetAtomMapNum(atom.idx)
+            formal_charge = (
+                    rd_periodic_table.GetNOuterElecs(symbol)
+                    - atom.num_valence_electrons
+            )
+            new_atom.SetFormalCharge(formal_charge)
+
+        rdkit_bond_dict = {1: Chem.BondType.SINGLE, 2: Chem.BondType.DOUBLE, 3: Chem.BondType.TRIPLE}
+
+        for idx_1 in initial_bonds.keys():
+            for idx_2 in initial_bonds[idx_1]:
+                bond_type = rdkit_bond_dict[initial_bonds[idx_1].count(idx_2)]
+                if ed_new_mol.GetBondBetweenAtoms(idx_1 - 1, idx_2 - 1) == None:
+                    ed_new_mol.AddBond(idx_1 - 1, idx_2 - 1, bond_type)
+
+
+        return orbital_systems, Chem.MolToSmiles(ed_new_mol)
 
     # TODO: you are losing lone pairs here
     def select_active_orbital_systems(self):

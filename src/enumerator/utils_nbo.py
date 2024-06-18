@@ -132,6 +132,37 @@ def extract_nbo_lines(name):
     return nbo_lines
 
 
+def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
+
+    electrons_per_atom = dict()
+
+    line_0 = " ------------------ Lewis ------------------------------------------------------\n"
+    line_1 = " ---------------- non-Lewis ----------------------------------------------------\n"
+
+    for idx_smi, smiles in enumerate(smiles_list):
+        ordered_smiles = ordering_smiles(smiles)
+        idx_0 = nbo_lines[idx_smi].index(line_0)
+        idx_1 = nbo_lines[idx_smi].index(line_1)
+
+        for line in nbo_lines[idx_smi][idx_0 + 1: idx_1]:
+
+            if 'BD' in line:
+                atom_1 = int(line[25:28])
+                atom_2 = int(line[31:34])
+                atom_1_in_numbered_smiles = int(ordered_smiles[atom_1 - 1].split(':')[-1])
+                atom_2_in_numbered_smiles = int(ordered_smiles[atom_2 - 1].split(':')[-1])
+
+                electrons_per_atom[atom_1_in_numbered_smiles] = electrons_per_atom.get(atom_1_in_numbered_smiles, 0) + 1
+                electrons_per_atom[atom_2_in_numbered_smiles] = electrons_per_atom.get(atom_2_in_numbered_smiles, 0) + 1
+
+            if 'LP' in line:
+                atom = int(line[25:28])
+                atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
+                electrons_per_atom[atom_in_numbered_smiles] = electrons_per_atom.get(atom_in_numbered_smiles, 0) + 2
+
+    return electrons_per_atom
+
+
 def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
 
     ordered_smiles = ordering_smiles(numbered_smiles)

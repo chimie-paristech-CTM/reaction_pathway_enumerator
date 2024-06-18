@@ -10,7 +10,7 @@ from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smile
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
 from enumerator.localized_configuration import Atom, LocalizedConfiguration
 from enumerator.localized_configuration_NBO import AtomNBO, LocalizedConfigurationNBO
-from enumerator.utils_nbo import get_nbo, read_from_chk
+from enumerator.utils_nbo import get_nbo, read_from_chk, extract_electrons_based_bond_matrix
 
 from copy import deepcopy
 
@@ -574,6 +574,8 @@ class ReactingSystem:
                 self.nbo_lines = get_nbo(self.numbered_smiles)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
+            self.numbered_smiles = self.localized_configuration.raw_smiles
+            self.orbital_graph = self.set_up_orbital_graph()
         else:
             self.atoms = self.set_up_atoms()
             self.localized_configuration = self.set_up_localized_configuration()
@@ -616,51 +618,28 @@ class ReactingSystem:
 
         return atoms
 
-
     def set_up_atoms_NBO(self):
         """Process NBO atoms, add them to the editable version of the molecule, and create Atom objects."""
         atoms = []
         smiles_list = self.numbered_smiles.split('.')
+        num_electrons = extract_electrons_based_bond_matrix(self.nbo_lines, smiles_list)
 
-        for idx_smi, smiles in enumerate(smiles_list):
-            ordered_smiles = ordering_smiles(smiles)
-
-            line_0_nao = '  NAO Atom No lang   Type(AO)    Occupancy      Energy\n'
-            line_1_nao = ' Summary of Natural Population Analysis:\n'
-            idx_0 = self.nbo_lines[idx_smi].index(line_0_nao)
-            idx_1 = self.nbo_lines[idx_smi].index(line_1_nao)
-
-            for atom in ordered_smiles:
-                num_valence_orbitals = 0
-                atom_symbol, atom_idx = atom.split(':')
-                atom_idx = int(atom_idx)
-
-                for line in self.nbo_lines[idx_smi][idx_0 + 2: idx_1]:
-
-                    if line.isspace():
-                        continue
-                    if atom_idx == int(line[9:13]):
-                        if 'Val' == line[21:24]:
-                            num_valence_orbitals += 1
-                    elif atom_idx < int(line[9:13]):
-                        idx_0 = self.nbo_lines[idx_smi].index(line) - 2
-                        break
-
-                charge = float(self.nbo_lines[idx_smi][idx_1 + atom_idx + 5][11:19])
-                core, valence, rydberg, total = self.nbo_lines[idx_smi][idx_1 + atom_idx + 5][22:].split()
-                num_valence_electrons = int(float(valence) + float(rydberg) + charge)
-                atom_is_metal = (atom_symbol in metal_symbols)
-
-                atoms.append(
-                    AtomNBO(
-                        molecule=self,
-                        atom_type=atom_symbol,
-                        idx=atom_idx,
-                        num_valence_orbitals=num_valence_orbitals,
-                        num_valence_electrons=num_valence_electrons,
-                        metal=atom_is_metal
-                    )
+        for atom in self.orig_mol.GetAtoms():
+            atom_idx = atom.GetAtomMapNum()
+            atom_is_metal = (atom.GetSymbol() in metal_symbols)
+            atom_is_upper_3rd_row = (atom.GetSymbol() in upper_3rd_row_symbols)
+            atom.SetIsAromatic(False)  # remove aromaticity properties
+            num_valence_electrons = num_electrons[atom_idx]
+            atoms.append(
+                AtomNBO(
+                    molecule=self,
+                    atom=atom,
+                    atom_type=atom.GetSymbol(),
+                    idx=atom_idx,
+                    num_valence_electrons=num_valence_electrons,
+                    metal=atom_is_metal
                 )
+            )
 
         return atoms
 

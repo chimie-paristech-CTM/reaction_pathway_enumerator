@@ -52,7 +52,7 @@ def get_thermodynamically_feasible_products():
         print(len(product_energies_dict))
 
 
-def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True):
+def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -60,11 +60,13 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
         idx_list (list, optional): A list of bonding system indices. Defaults to None.
         max_length (int, optional): The maximum number of orbital systems in a single fragment.
         allow_zwitterions (bool, optional): Whether or not to allow the generation of zwitterions
+        nbo (bool, optional): Use NBO
+        nbo_dir (str, optional): Directory with NBO output
 
     Returns:
         list: A list of product SMILES.
     """
-    reacting_system = ReactingSystem(smiles)
+    reacting_system = ReactingSystem(smiles, nbo, nbo_dir)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
