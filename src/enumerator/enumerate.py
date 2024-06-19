@@ -16,6 +16,8 @@ def get_args():
     parser.add_argument("--max-length", action="store", type=int, default=2)
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
     parser.add_argument("--print-configuration", action="store_true", default=False)
+    parser.add_argument("--nbo", action="store_true", default=False)
+    parser.add_argument("--nbo_dir", action="store_true", default=None)
 
     return parser.parse_args()
 
@@ -27,12 +29,12 @@ def get_thermodynamically_feasible_products():
         filename=f"test.log", encoding="utf-8", level=logging.DEBUG
     )
     if args.print_configuration:
-        reacting_system = ReactingSystem(args.smiles)
+        reacting_system = ReactingSystem(args.smiles, args.nbo, args.nbo_dir)
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
         products = enumerate_potential_products(
-            args.smiles, args.idx_list, args.max_length, args.allow_zwitterions
+            args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir
         )
         print(products)
         print(len(products))
