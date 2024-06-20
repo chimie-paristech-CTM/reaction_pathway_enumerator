@@ -2,6 +2,7 @@ import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 from enumerator.utils import ordering_smiles
+from enumerator.utils_nbo import extract_2nd_interaction_dict
 from rdkit import Chem
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
@@ -32,6 +33,7 @@ class ValenceOrbital:
         self.atom_type = atom_type
         self.num_electrons = 0
         self.paired = False
+        self.lone_pair_idx = None
 
         # set an identifier attribute that is unique across the entire reacting system
         self.identifier = f'{self.atom_idx}_{self.idx}'
@@ -51,6 +53,10 @@ class ValenceOrbital:
     def is_paired(self):
         """Returns bool indicating whether the valence orbital is paired or not."""
         return self.paired
+
+    def set_lone_pair_idx(self, lp_idx):
+        """Sets the lone pair index from an NBO calculation."""
+        self.lone_pair_idx = lp_idx
 
     def __str__(self) -> str:
         return (
@@ -107,11 +113,13 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, orig_mol, atoms, nbo_lines):
-        self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(orig_mol, atoms, nbo_lines)
+    def __init__(self, numbered_smiles, atoms, nbo_lines):
+        self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
+        self.secondary_interactions = extract_2nd_interaction_dict(numbered_smiles, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
+        self.bonding_antibonding_system_list = self.map_bonding_antibonding(numbered_smiles, nbo_lines)
 
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
@@ -120,7 +128,7 @@ class LocalizedConfigurationNBO:
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
-        lone_pairs = dict()
+        lone_pairs: Dict[int, List[int]] = dict()
 
         smiles_list = numbered_smiles.split('.')
 
@@ -149,8 +157,9 @@ class LocalizedConfigurationNBO:
 
                 if 'LP' in line:
                     atom = int(line[25:28])
+                    lp_idx = int(line[0:4])
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
-                    lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, 0) + 1
+                    lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, []) + [lp_idx]
 
         # construct all the orbital systems
         orbital_system_idx = 0
@@ -163,6 +172,10 @@ class LocalizedConfigurationNBO:
                 # generate lone pairs and empty valences
                 if vo.num_electrons == 0 or vo.num_electrons == 2:
                     new_orbital_system = LocalizedOrbitalSystem(orbital_system_idx)
+                    if vo.num_electrons == 2:
+                        lp_idxs = lone_pairs[atom.idx]
+                        lp_idx = lp_idxs.pop()
+                        vo.set_lone_pair_idx(lp_idx)
                     new_orbital_system.add_vo(vo)
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
@@ -260,3 +273,38 @@ class LocalizedConfigurationNBO:
         """
         return self.vo_list
 
+    def map_bonding_antibonding(self, numbered_smiles, nbo_lines):
+
+        smiles_list = numbered_smiles.split('.')
+        map_bonds = {}
+
+        for idx, smiles in enumerate(smiles_list):
+
+            line_0 = " ------------------ Lewis ------------------------------------------------------\n"
+            line_1 = " ---------------- non-Lewis ----------------------------------------------------\n"
+            line_2 = " NHO DIRECTIONALITY AND BOND BENDING (deviation from line of nuclear centers at\n"
+            idx_0 = nbo_lines[idx].index(line_0)
+            idx_1 = nbo_lines[idx].index(line_1)
+            idx_2 = nbo_lines[idx].index(line_2)
+
+            bond_antibond_pairs = []
+
+            for line in nbo_lines[idx][idx_0: idx_1]:
+
+                if 'BD' in line:
+                    bond_idx = int(line[0:4])
+                    atom_1_bd = int(line[25:28])
+                    atom_2_bd = int(line[31:34])
+
+                    for line in nbo_lines[idx][idx_1: idx_2]:
+                        if 'BD*' in line:
+                            atom_1_antibd = int(line[25:28])
+                            atom_2_antibd = int(line[31:34])
+                            if (atom_1_antibd == atom_1_bd) and (atom_2_antibd == atom_2_bd):
+                                antibond_idx = int(line[0:4])
+                                bond_antibond_pairs.append((bond_idx, antibond_idx))
+                                break
+
+            map_bonds[idx] = bond_antibond_pairs
+
+        return map_bonds

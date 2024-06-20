@@ -163,43 +163,37 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     return electrons_per_atom
 
 
-def extract_2nd_interaction_dict(idx_reac, numbered_smiles, threshold=20.0):
+def extract_2nd_interaction_dict(numbered_smiles, nbo_lines, threshold=20.0):
 
-    ordered_smiles = ordering_smiles(numbered_smiles)
+    smiles_list = numbered_smiles.split('.')
+    interactions_dict = {}
 
-    filename = f"r{idx_reac}_NBO.log"
-    with open(filename, 'r') as file:
-        lines = file.readlines()
+    for idx, smiles in enumerate(smiles_list):
 
-    line_0 = " SECOND ORDER PERTURBATION THEORY ANALYSIS OF FOCK MATRIX IN NBO BASIS\n"
-    line_1 = " NATURAL BOND ORBITALS (Summary):\n"
-    idx_0 = lines.index(line_0)
-    idx_1 = lines.index(line_1)
+        line_0 = " SECOND ORDER PERTURBATION THEORY ANALYSIS OF FOCK MATRIX IN NBO BASIS\n"
+        line_1 = " NATURAL BOND ORBITALS (Summary):\n"
+        idx_0 = nbo_lines[idx].index(line_0)
+        idx_1 = nbo_lines[idx].index(line_1)
 
-    interactions = []
+        interactions = []
 
-    for line in lines[idx_0 + 7: idx_1 - 2]:
-        if line.startswith(' within unit'):
-            continue
+        for line in nbo_lines[idx][idx_0 + 7: idx_1 - 2]:
+            if line.startswith(' within unit'):
+                continue
 
-        if float(line.split()[-3]) > threshold:
+            if float(line.split()[-3]) > threshold:
 
-            if line[7:9] == "LP":
-                donor = (int(line[17:19]),)
-            elif line[7:9] == "BD":
-                donor = (int(line[17:19]), int(line[23:25]))
+                if (line[7:9] == "LP") or (line[7:9] == "BD"):
+                    donor_idx = (int(line[1:5]))
 
-            if line[35:38] == 'BD*':
-                acceptor = (int(line[45:47]), int(line[51:53]))
-            elif line[35:38] == 'RY ':
-                acceptor = (int(line[45:47]),)
+                if line[35:38] == 'BD*':
+                    acceptor_idx = (int(line[30:33]))
 
-            donor_smiles = [ordered_smiles[idx_atom - 1].split(':')[-1] for idx_atom in donor]
-            acceptor_smiles = [ordered_smiles[idx_atom - 1].split(':')[-1] for idx_atom in acceptor]
+                interactions.append((donor_idx, acceptor_idx))
 
-            interactions.append((donor_smiles, acceptor_smiles))
+        interactions_dict[idx] = interactions
 
-    return interactions
+    return interactions_dict
 
 
 class CalculationError(Exception):
