@@ -163,9 +163,10 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     return electrons_per_atom
 
 
-def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=20.0):
+def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
 
     smiles_list = numbered_smiles.split('.')
+    interactions = []
 
     for idx, smiles in enumerate(smiles_list):
         ordered_smiles = ordering_smiles(smiles)
@@ -175,16 +176,17 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=20.0):
         idx_0 = nbo_lines[idx].index(line_0)
         idx_1 = nbo_lines[idx].index(line_1)
 
-        interactions = []
-
         for line in nbo_lines[idx][idx_0 + 7: idx_1 - 2]:
             if line.startswith(' within unit'):
                 continue
+
+            lp_idx = None
 
             if float(line.split()[-3]) > threshold:
 
                 if line[7:9] == "LP":
                     donor_atom_idxs = (int(line[17:19]),)
+                    lp_idx = (int(line[11:13]))
                 elif line[7:9] == "BD":
                     donor_atom_idxs = (int(line[17:19]), int(line[23:25]))
 
@@ -194,6 +196,8 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=20.0):
                     acceptor_atom_idxs = (int(line[45:47]),)
 
                 donor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in donor_atom_idxs]
+                if lp_idx:
+                    donor_idx_numbered_smiles = [f"{donor_idx_numbered_smiles[0]}_{lp_idx}"]
                 acceptor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in acceptor_atom_idxs]
 
                 interactions.append((donor_idx_numbered_smiles, acceptor_idx_numbered_smiles))
