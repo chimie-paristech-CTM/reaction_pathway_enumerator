@@ -2,7 +2,7 @@ import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 from enumerator.utils import ordering_smiles
-from enumerator.utils_nbo import extract_2nd_interaction_dict
+from enumerator.utils_nbo import extract_secondary_interactions
 from rdkit import Chem
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
@@ -115,11 +115,11 @@ class AtomNBO:
 class LocalizedConfigurationNBO:
     def __init__(self, numbered_smiles, atoms, nbo_lines):
         self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
-        self.secondary_interactions = extract_2nd_interaction_dict(numbered_smiles, nbo_lines)
+        self.secondary_interactions = extract_secondary_interactions(numbered_smiles, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
-        self.bonding_antibonding_system_list = self.map_bonding_antibonding(numbered_smiles, nbo_lines)
+        self.bonding_antibonding_system_list = self.get_map_bonding_antibonding(numbered_smiles, nbo_lines)
 
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
@@ -157,7 +157,7 @@ class LocalizedConfigurationNBO:
 
                 if 'LP' in line:
                     atom = int(line[25:28])
-                    lp_idx = int(line[0:4])
+                    lp_idx = int(line[20:22])
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, []) + [lp_idx]
 
@@ -273,7 +273,7 @@ class LocalizedConfigurationNBO:
         """
         return self.vo_list
 
-    def map_bonding_antibonding(self, numbered_smiles, nbo_lines):
+    def get_map_bonding_antibonding(self, numbered_smiles, nbo_lines):
 
         smiles_list = numbered_smiles.split('.')
         map_bonds = {}

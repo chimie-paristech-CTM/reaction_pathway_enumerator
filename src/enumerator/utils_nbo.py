@@ -163,12 +163,12 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     return electrons_per_atom
 
 
-def extract_2nd_interaction_dict(numbered_smiles, nbo_lines, threshold=20.0):
+def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=20.0):
 
     smiles_list = numbered_smiles.split('.')
-    interactions_dict = {}
 
     for idx, smiles in enumerate(smiles_list):
+        ordered_smiles = ordering_smiles(smiles)
 
         line_0 = " SECOND ORDER PERTURBATION THEORY ANALYSIS OF FOCK MATRIX IN NBO BASIS\n"
         line_1 = " NATURAL BOND ORBITALS (Summary):\n"
@@ -183,17 +183,22 @@ def extract_2nd_interaction_dict(numbered_smiles, nbo_lines, threshold=20.0):
 
             if float(line.split()[-3]) > threshold:
 
-                if (line[7:9] == "LP") or (line[7:9] == "BD"):
-                    donor_idx = (int(line[1:5]))
+                if line[7:9] == "LP":
+                    donor_atom_idxs = (int(line[17:19]),)
+                elif line[7:9] == "BD":
+                    donor_atom_idxs = (int(line[17:19]), int(line[23:25]))
 
                 if line[35:38] == 'BD*':
-                    acceptor_idx = (int(line[30:33]))
+                    acceptor_atom_idxs = (int(line[45:47]), int(line[51:53]))
+                elif line[35:38] == 'RY ':
+                    acceptor_atom_idxs = (int(line[45:47]),)
 
-                interactions.append((donor_idx, acceptor_idx))
+                donor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in donor_atom_idxs]
+                acceptor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in acceptor_atom_idxs]
 
-        interactions_dict[idx] = interactions
+                interactions.append((donor_idx_numbered_smiles, acceptor_idx_numbered_smiles))
 
-    return interactions_dict
+    return interactions
 
 
 class CalculationError(Exception):
