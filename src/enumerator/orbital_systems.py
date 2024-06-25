@@ -43,7 +43,7 @@ class LocalizedOrbitalSystem(OrbitalSystem):
                 vo.set_paired()
 
     def get_atoms(self):
-        """Retruns a list of atom indices present in the orbital system."""
+        """Returns a list of atom indices present in the orbital system."""
         return [vo.atom_idx for vo in self.vos]
 
     def get_heavy_atoms(self):
@@ -67,6 +67,30 @@ class LocalizedOrbitalSystem(OrbitalSystem):
             return True
         else:
             return False
+
+    def is_lp(self):
+        """
+        returns bool, indicating wheter the localized orbital system is a lone pair or not
+        """
+        if len(self.vos) == 1:
+            if self.vos[0].num_electrons == 2:
+                return True
+            else:
+                return False
+        else:
+            return False
+
+    def get_lp_idx(self):
+        """
+        returns lone pair index, if not return 0
+        """
+        if len(self.vos) == 1:
+            if self.vos[0].num_electrons == 2:
+                return self.vos[0].lp_idx
+            else:
+                return 0
+        else:
+            return 0
 
     def __str__(self):
         return f'localized orbital system {self.idx}: vos = {self.vos}'

@@ -192,18 +192,30 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
 
                 if line[35:38] == 'BD*':
                     acceptor_atom_idxs = (int(line[45:47]), int(line[51:53]))
-                elif line[35:38] == 'RY ':
-                    acceptor_atom_idxs = (int(line[45:47]),)
 
                 donor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in donor_atom_idxs]
                 if lp_idx:
-                    donor_idx_numbered_smiles = [f"{donor_idx_numbered_smiles[0]}_{lp_idx}"]
+                    donor_bond = f"{donor_idx_numbered_smiles[0]}_{lp_idx}"
+                else:
+                    donor_bond = f"{donor_idx_numbered_smiles[0]}-{donor_idx_numbered_smiles[1]}"
                 acceptor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in acceptor_atom_idxs]
+                acceptor_bond = f"{acceptor_idx_numbered_smiles[0]}-{acceptor_idx_numbered_smiles[1]}"
 
-                interactions.append((donor_idx_numbered_smiles, acceptor_idx_numbered_smiles))
+                interactions.append((donor_bond, acceptor_bond))
 
     return interactions
 
+
+def check_lp_within_secondary_interaction(interactions, lp_idx):
+
+    if interactions:
+        for interaction in interactions:
+            donor_key = interaction[0]
+            if '_' in donor_key:
+                lp_donor_idx = int(donor_key.split('_')[-1])
+                if lp_donor_idx == lp_idx:
+                    return True
+    return False
 
 class CalculationError(Exception):
     """Custom exception for calculation errors."""

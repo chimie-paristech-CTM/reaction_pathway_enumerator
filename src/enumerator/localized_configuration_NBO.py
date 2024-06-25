@@ -2,7 +2,7 @@ import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 from enumerator.utils import ordering_smiles
-from enumerator.utils_nbo import extract_secondary_interactions
+from enumerator.utils_nbo import extract_secondary_interactions, check_lp_within_secondary_interaction
 from rdkit import Chem
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
@@ -114,11 +114,13 @@ class AtomNBO:
 
 class LocalizedConfigurationNBO:
     def __init__(self, numbered_smiles, atoms, nbo_lines):
+        self.mapping_orbital_system_bonds = {}
         self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
         self.secondary_interactions = extract_secondary_interactions(numbered_smiles, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
+        self.delocalized_systems = self.get_delocalized_systems()
 
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
@@ -174,7 +176,11 @@ class LocalizedConfigurationNBO:
                     if vo.num_electrons == 2:
                         lp_idxs = lone_pairs[atom.idx]
                         lp_idx = lp_idxs.pop()
-                        vo.set_lp_idx(lp_idx)
+                        vo.set_lone_pair_idx(lp_idx)
+                        atom_lp_idx = f"{atom.idx}_{lp_idx}"
+                        self.mapping_orbital_system_bonds[
+                            atom_lp_idx] = self.mapping_orbital_system_bonds.get(atom_lp_idx, []) + [
+                            new_orbital_system]
                     new_orbital_system.add_vo(vo)
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
@@ -193,6 +199,9 @@ class LocalizedConfigurationNBO:
                                     new_orbital_system.add_vo(partner_vo)
                                     partner_vo.set_paired()
                                     vo.set_paired()
+                                    bond_between_atoms = f"{atom.idx}-{neighbor_idx}"
+                                    self.mapping_orbital_system_bonds[
+                                        bond_between_atoms] = self.mapping_orbital_system_bonds.get(bond_between_atoms, []) + [new_orbital_system]
                                     break
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
@@ -230,7 +239,12 @@ class LocalizedConfigurationNBO:
         already_covered_systems = set()
         for orbital_system in self.orbital_systems_list:
             # these are the minimal characteristics to distinguish between orbital systems
-            system_info = f'{orbital_system.get_num_electrons()}, {set(orbital_system.get_heavy_atoms())}, {len(orbital_system.get_atoms())}'
+            system_info = f'{orbital_system.get_num_electrons()}, {set(orbital_system.get_heavy_atoms())}, {len(orbital_system.get_atoms())}, {orbital_system.get_lp_idx()}'
+            if orbital_system.is_lp():
+                lp_idx = orbital_system.vos[0].lp_idx
+                if not check_lp_within_secondary_interaction(self.secondary_interactions, lp_idx):
+                    already_covered_systems.add(system_info)
+
             if system_info not in already_covered_systems:
                 already_covered_systems.add(system_info)
                 active_orbital_systems.add(orbital_system)
@@ -251,6 +265,30 @@ class LocalizedConfigurationNBO:
                 vo_to_orbital_system_dict[vo.identifier] = orbital_system
 
         return vo_to_orbital_system_dict
+
+    def get_delocalized_systems(self):
+
+        secondary_interactions = self.secondary_interactions
+        delocalized_systems = []
+        if secondary_interactions:
+            for interaction in secondary_interactions:
+                donor = interaction[0]
+                acceptor = interaction[1]
+
+                donor_orbital_systems = self.mapping_orbital_system_bonds[donor]
+                acceptor_orbital_systems = self.mapping_orbital_system_bonds[acceptor]
+
+                for orbital_system in donor_orbital_systems:
+                    if orbital_system in self.active_orbital_systems_list:
+                        orbital_system_donor_add = orbital_system
+
+                for orbital_system in acceptor_orbital_systems:
+                    if orbital_system in self.active_orbital_systems_list:
+                        orbital_system_acceptor_add = orbital_system
+
+                delocalized_systems.append([orbital_system_donor_add,
+                                            orbital_system_acceptor_add])
+        return delocalized_systems
 
     def set_vo_list(self):
         """
