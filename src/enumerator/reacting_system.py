@@ -171,11 +171,12 @@ class OrbitalGraph:
     A class corresponding to an abstract graph, where nodes correspond to VOs, 
     and edges correspond to existing and potential intrafragment interactions. 
     """
-    def __init__(self, localized_configuration, numbered_smiles, orig_mol):
+    def __init__(self, localized_configuration, numbered_smiles, orig_mol, nbo):
         self.localized_configuration = localized_configuration
         self.atom_to_fragment_dict = self.get_atom_to_fragment_dict(numbered_smiles)
         self.numbered_smiles = numbered_smiles
         self.orig_mol = orig_mol
+        self.nbo = nbo
 
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
@@ -404,6 +405,7 @@ class OrbitalGraph:
         for fragment_paths in all_intrafragment_paths:
             # initialize -- we consider plausible extensions in every fragment (make a shallow copy so that take a static snapshot of the fragment paths at first)
             paths_to_extend = fragment_paths.copy()
+
             while len(paths_to_extend) > 0:
                 new_paths_to_extend = []
                 for path in paths_to_extend:
@@ -429,6 +431,12 @@ class OrbitalGraph:
                             else:
                                 continue # no crossings within path
                 paths_to_extend = new_paths_to_extend
+
+        if self.nbo:
+            # adding the delocalized vos that were obtaing with NBO and secondary interaction analysis
+            for delocalized_vos in self.localized_configuration.delocalized_vos_systems:
+                vo = delocalized_vos[0]
+                all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(delocalized_vos)
 
         return all_intrafragment_paths
     
@@ -563,11 +571,12 @@ class ReactingSystem:
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir=None):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
+        self.nbo = nbo
         print(self.numbered_smiles)
 
         self.num_atoms = self.orig_mol.GetNumAtoms()
 
-        if nbo:
+        if self.nbo:
             if nbo_dir:
                 self.nbo_lines = read_from_chk(self.numbered_smiles, nbo_dir)
             else:
@@ -654,7 +663,7 @@ class ReactingSystem:
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""
-        return OrbitalGraph(self.localized_configuration, self.numbered_smiles, self.orig_mol)
+        return OrbitalGraph(self.localized_configuration, self.numbered_smiles, self.orig_mol, self.nbo)
 
     def generate_reaction_paths(self, idx_list, max_length):
         """

@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
     parser.add_argument("--print-configuration", action="store_true", default=False)
     parser.add_argument("--nbo", action="store_true", default=False)
-    parser.add_argument("--nbo_dir", action="store_true", default=None)
+    parser.add_argument("--nbo_dir", action="store", default=None)
 
     return parser.parse_args()
 

@@ -120,7 +120,7 @@ class LocalizedConfigurationNBO:
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
-        self.delocalized_systems = self.get_delocalized_systems()
+        self.delocalized_vos_systems = self.get_delocalized_vos()
 
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
@@ -266,12 +266,13 @@ class LocalizedConfigurationNBO:
 
         return vo_to_orbital_system_dict
 
-    def get_delocalized_systems(self):
+    def get_delocalized_vos(self):
 
         secondary_interactions = self.secondary_interactions
-        delocalized_systems = []
+        delocalized_vos = []
         if secondary_interactions:
             for interaction in secondary_interactions:
+                vos = []
                 donor = interaction[0]
                 acceptor = interaction[1]
 
@@ -280,15 +281,16 @@ class LocalizedConfigurationNBO:
 
                 for orbital_system in donor_orbital_systems:
                     if orbital_system in self.active_orbital_systems_list:
-                        orbital_system_donor_add = orbital_system
+                        for vo in orbital_system.vos:
+                            vos.append(vo)
 
                 for orbital_system in acceptor_orbital_systems:
                     if orbital_system in self.active_orbital_systems_list:
-                        orbital_system_acceptor_add = orbital_system
+                        for vo in orbital_system.vos:
+                            vos.append(vo)
 
-                delocalized_systems.append([orbital_system_donor_add,
-                                            orbital_system_acceptor_add])
-        return delocalized_systems
+                delocalized_vos.append(vos)
+        return delocalized_vos
 
     def set_vo_list(self):
         """
