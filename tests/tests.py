@@ -44,10 +44,17 @@ class TestMyModule(unittest.TestCase):
         self.assertIn('O=c1ccn([C@@H]2O[C@H](CO)[C@@H](O)[C@H]2O)c(=O)[nH]1.[OH3+]', deprot_products)
 
     def test_deprotonation_reaction2(self):
-        deprot_products = enumerate_potential_products('O=P([O-])(O)O.O=C1C=C[NH+]([C@@H]2O[C@H](CO)[C@@H](O)[C@H]2O)C(=O)N1', None, allow_zwitterions=False, nbo=True, nbo_dir='calc/')
+        deprot_products = enumerate_potential_products('O=P([O-])(O)O.O=C1C=C[NH+]([C@@H]2O[C@H](CO)[C@@H](O)[C@H]2O)C(=O)N1', None, allow_zwitterions=False, nbo=True, nbo_dir='calc/phosphate')
         deprot_products = get_products_without_map_numbers(deprot_products)
         
         self.assertIn('O=P(O)(O)O.O=c1ccn([C@@H]2O[C@H](CO)[C@@H](O)[C@H]2O)c(=O)[nH]1', deprot_products)
+
+
+    def test_diels_alder_product(self):
+        products = enumerate_potential_products('C=C.C=CC=C', None, allow_zwitterions=False, nbo=True, nbo_dir='calc/DA')
+        products = get_products_without_map_numbers(products)
+
+        self.assertIn('C1=CCCCC1', products)
 
 
 
