@@ -108,6 +108,8 @@ class Reaction:
 
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
+            if self.orig_path[i+1].atom_idx == vo.atom_idx:
+                continue
             if self.orig_path[i+1] in self.existing_interactions[vo.identifier]:
                 editable_mol = decrease_bond_order(editable_mol, vo, self.orig_path[i+1])
             else:
@@ -251,9 +253,12 @@ class OrbitalGraph:
                 # don't include existing interactions
                 if vo2.identifier in self.existing_interactions[vo1.identifier]:
                     continue
-                # don't include orbitals on the same atom
+                # don't include orbitals on the same atom if is not a metal
                 elif vo2.atom_idx == vo1.atom_idx:
-                    continue 
+                    if vo2.atom_type in metal_symbols:
+                        self.add_potential_intrafragment_interaction(vo1, vo2)
+                    else:
+                        continue
                 # don't include orbital pairs when one of them is already involved an existing interaction with another orbital on the same atom => results in no productive repairing
                 elif vo2.atom_idx in [vo.atom_idx for vo in self.existing_interactions[vo1.identifier]]: 
                     continue
@@ -293,6 +298,15 @@ class OrbitalGraph:
 
     def get_interacting_orbitals(self, vo):
         return list(self.existing_interactions.get(vo.identifier, {}))
+
+    def get_empty_orbitals(self, vo):
+
+        atom_idx = vo.atom_idx
+        empty_orbital = None
+        for partner_vo in self.localized_configuration.get_vos():
+            if partner_vo.num_electrons == 0 and partner_vo.atom_idx == atom_idx:
+                    empty_orbital = partner_vo
+        return empty_orbital
 
     def get_intrafragment_neighbors(self, vo):
         return self.potential_intrafragment_interactions.get(vo.identifier, [])
@@ -378,13 +392,22 @@ class OrbitalGraph:
             within the path. The resulting list contains all computed intrafragment paths.
         """
         all_intrafragment_paths = [[] for _ in self.numbered_smiles.split('.')]
-    
+
+        show = False
+
         # initialize
         for vo in self.localized_configuration.get_vos():
             new_path = []
             partner_vos = self.get_interacting_orbitals(vo) 
             if len(partner_vos) == 0:
                 new_path.append(vo)
+                if vo.num_electrons == 2 and vo.atom_type in metal_symbols: # for oxidative addition we need a lone pair and empty orbital
+                    alternative_path = []
+                    alternative_partner_vos = self.get_empty_orbitals(vo)
+                    if alternative_partner_vos:
+                        alternative_path.append(vo)
+                        alternative_path.append(alternative_partner_vos)
+                        all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(alternative_path)
             elif len(partner_vos) == 1:
                 if vo.num_electrons == 1 and partner_vos[0].num_electrons == 1:
                     new_path.append(vo)
@@ -461,8 +484,17 @@ class OrbitalGraph:
             # now make all the possible combinations within the selected fragment order
             all_combinations_list = list(product(*intrafragment_paths_reordered))
             for combination in all_combinations_list:
+                lp_empty_vo = False
                 new_interfragment_path = []
-                new_interfragment_path += combination[0]
+
+                if len(combination[0]) > 1:
+                    if combination[0][0].num_electrons == 2 and combination[0][1].num_electrons == 0:
+                        lp_empty_vo = True
+
+                if lp_empty_vo:
+                    new_interfragment_path.append(combination[0][0])
+                else:
+                    new_interfragment_path += combination[0]
                 for fragment_path in combination[1:-1]:
                     # only add the fragment if it enables a continuous path
                     if (fragment_path[0].num_electrons == 1 and fragment_path[0].is_paired()) \
@@ -473,6 +505,9 @@ class OrbitalGraph:
                 # inverse the final fragment_path before attachment (so that lone pairs etc. end up at the very end)
                 terminal_path = combination[-1].copy()
                 new_interfragment_path += terminal_path[::-1]
+
+                if lp_empty_vo:
+                    new_interfragment_path.append(combination[0][1])
                 # remove invalid paths -- you should only keep continuous paths, i.e., when the bridging vos had an interacting orbital to start with
                 # only start looking from the second vo, because you want to retain paths in which there is a 3c orbital system at the end
                 if any([len(self.get_interacting_orbitals(vo)) != 1 for vo in new_interfragment_path[2:-2]]):
@@ -583,7 +618,7 @@ class ReactingSystem:
                 self.nbo_lines = get_nbo(self.numbered_smiles)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
-            self.numbered_smiles = self.localized_configuration.raw_smiles
+            #self.numbered_smiles = self.localized_configuration.raw_smiles
             self.orbital_graph = self.set_up_orbital_graph()
         else:
             self.atoms = self.set_up_atoms()
