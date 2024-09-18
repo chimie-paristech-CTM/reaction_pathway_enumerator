@@ -1,30 +1,64 @@
 from rdkit import Chem
 import re
+import logging
+
+
+def create_logger(name='output') -> logging.Logger:
+    """
+    Creates a logger with a stream handler and two file handlers.
+
+    The stream handler prints to the screen depending on the value of `quiet`.
+    One file handler (verbose.log) saves all logs, the other (quiet.log) only saves important info.
+
+    :param save_dir: The directory in which to save the logs.
+    :return: The logger.
+    """
+
+    logger = logging.getLogger('final.log')
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(f'{name}.log')
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.ERROR)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+    return logger
+
 
 def decrease_bond_order(editable_mol, vo1, vo2):
-    current_bond = editable_mol.GetBondBetweenAtoms(
+
+    try:
+        current_bond = editable_mol.GetBondBetweenAtoms(
+                    vo1.atom_idx - 1, vo2.atom_idx - 1
+                )
+        if current_bond.GetBondType() is Chem.rdchem.BondType.SINGLE:
+            editable_mol.RemoveBond(
                 vo1.atom_idx - 1, vo2.atom_idx - 1
             )
-    if current_bond.GetBondType() is Chem.rdchem.BondType.SINGLE:
-        editable_mol.RemoveBond(
-            vo1.atom_idx - 1, vo2.atom_idx - 1
-        )
-    elif current_bond.GetBondType() is Chem.rdchem.BondType.DOUBLE:
-        editable_mol.RemoveBond(
-            vo1.atom_idx - 1, vo2.atom_idx - 1
-        )
-        editable_mol.AddBond(
-            vo1.atom_idx - 1, vo2.atom_idx - 1,
-            Chem.rdchem.BondType.SINGLE,
-        )
-    elif current_bond.GetBondType() is Chem.rdchem.BondType.TRIPLE:
-        editable_mol.RemoveBond(
-            vo1.atom_idx-1, vo2.atom_idx - 1
-        )
-        editable_mol.AddBond(
-            vo1.atom_idx - 1, vo2.atom_idx - 1,
-            Chem.rdchem.BondType.DOUBLE
-        )
+        elif current_bond.GetBondType() is Chem.rdchem.BondType.DOUBLE:
+            editable_mol.RemoveBond(
+                vo1.atom_idx - 1, vo2.atom_idx - 1
+            )
+            editable_mol.AddBond(
+                vo1.atom_idx - 1, vo2.atom_idx - 1,
+                Chem.rdchem.BondType.SINGLE,
+            )
+        elif current_bond.GetBondType() is Chem.rdchem.BondType.TRIPLE:
+            editable_mol.RemoveBond(
+                vo1.atom_idx-1, vo2.atom_idx - 1
+            )
+            editable_mol.AddBond(
+                vo1.atom_idx - 1, vo2.atom_idx - 1,
+                Chem.rdchem.BondType.DOUBLE
+            )
+    except AttributeError:
+        pass
     
     return editable_mol
 

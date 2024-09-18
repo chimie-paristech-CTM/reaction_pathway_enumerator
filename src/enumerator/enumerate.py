@@ -1,9 +1,9 @@
 import argparse
 from tqdm import tqdm
-import logging
 
 from enumerator.reacting_system import ReactingSystem
-from enumerator.get_energies import get_system_energy 
+from enumerator.get_energies import get_system_energy
+from enumerator.utils import create_logger
 
 HARTREE_TO_EV = 27.2114
 
@@ -25,9 +25,8 @@ def get_args():
 def get_thermodynamically_feasible_products():
     """Returns a list of feasible product molecules based on the SMILES input."""
     args = get_args()
-    logging.basicConfig(
-        filename=f"test.log", encoding="utf-8", level=logging.DEBUG
-    )
+    logger = create_logger(name='output')
+
     if args.print_configuration:
         reacting_system = ReactingSystem(args.smiles, args.nbo, args.nbo_dir)
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
@@ -36,19 +35,20 @@ def get_thermodynamically_feasible_products():
         products = enumerate_potential_products(
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir
         )
-        print(products)
+        #print(products)
         print(len(products))
         product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
 
-        logging.info(product_energies_dict)
-        logging.info(len(product_energies_dict))
+        for k in product_energies_dict.keys():
+            logger.info(k)
+        logger.info(len(product_energies_dict))
         feasible_products_dict = dict(
             (k, product_energies_dict[k])
             for k in product_energies_dict.keys()
             if product_energies_dict[k] < 0
         )
 
-        print(feasible_products_dict)
+        #print(feasible_products_dict)
         print(len(feasible_products_dict))
 
         print(len(product_energies_dict))
