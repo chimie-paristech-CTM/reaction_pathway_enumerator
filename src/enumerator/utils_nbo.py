@@ -177,12 +177,15 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
         idx_1 = nbo_lines[idx].index(line_1)
 
         for line in nbo_lines[idx][idx_0 + 7: idx_1 - 2]:
-            if line.startswith(' within unit'):
+            if line.startswith(' within unit') or line.startswith(' from unit') or line.isspace():
                 continue
 
             lp_idx = None
 
             if float(line.split()[-3]) > threshold:
+
+                if line[35:37] == 'RY':
+                    continue
 
                 if line[7:9] == "LP":
                     donor_atom_idxs = (int(line[17:19]),)
