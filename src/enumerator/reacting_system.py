@@ -30,6 +30,7 @@ class Reaction:
         self.orig_path = vo_list
         self.modified_path = deepcopy(vo_list)
         self.existing_interactions = existing_interactions
+        self.reduction_process_metal = False
 
         self.ignore_first_vo = False
         self.ignore_final_vo = False
@@ -77,15 +78,23 @@ class Reaction:
             # this means that either both endpoints carry 1 electron, or 1 carries 2 and the other none 
             # -> optimally, you maximize the number of interactions in the modified path
             self.modified_path[start_idx].num_electrons = 1 
-            self.modified_path[end_idx].num_electrons = 1 
+            self.modified_path[end_idx].num_electrons = 1
+        elif self.modified_path[start_idx].num_electrons == 2 and self.modified_path[
+            start_idx + 1].num_electrons == 0 and self.modified_path[start_idx + 1].atom_type in metal_symbols:
+            # possible reduction product
+            self.modified_path[start_idx].num_electrons = 1
+            self.modified_path[start_idx + 1].num_electrons = 1
+            self.reduction_process_metal = True
         elif self.modified_path[start_idx].num_electrons != 1 and self.modified_path[end_idx].num_electrons == 1:
             # pass on excess/shortage of electrons from one side of the path to the other
             self.modified_path[end_idx].num_electrons = self.orig_path[start_idx].num_electrons
-            self.modified_path[start_idx].num_electrons = 1 
+            self.modified_path[start_idx].num_electrons = 1
         elif self.modified_path[start_idx].num_electrons == 1 and self.modified_path[end_idx].num_electrons != 1:
             # reverse from above
             self.modified_path[start_idx].num_electrons = self.orig_path[end_idx].num_electrons
             self.modified_path[end_idx].num_electrons = 1
+
+
     
     # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
     # For now you can ignore this however since this is inherently problematic with SMILES.
@@ -99,24 +108,31 @@ class Reaction:
         editable_mol = Chem.RWMol(self.orig_mol)  # editable version of the molecule
         start_idx, end_idx = self.get_start_end_idx()
 
-        # modify atom properties
-        for vo, modified_vo in zip(self.orig_path, self.modified_path):
-            if vo.num_electrons != modified_vo.num_electrons:
-                init_charge = editable_mol.GetAtomWithIdx(vo.atom_idx - 1).GetFormalCharge()
-                new_charge = init_charge - (modified_vo.num_electrons - vo.num_electrons)
-                editable_mol.GetAtomWithIdx(vo.atom_idx - 1).SetFormalCharge(new_charge)
+        if self.reduction_process_metal:
+            pass
+        else:
+            # modify atom properties
+            for vo, modified_vo in zip(self.orig_path, self.modified_path):
+                if vo.num_electrons != modified_vo.num_electrons:
+                    init_charge = editable_mol.GetAtomWithIdx(vo.atom_idx - 1).GetFormalCharge()
+                    new_charge = init_charge - (modified_vo.num_electrons - vo.num_electrons)
+                    editable_mol.GetAtomWithIdx(vo.atom_idx - 1).SetFormalCharge(new_charge)
 
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
             if self.orig_path[i+1].atom_idx == vo.atom_idx:
+                #print('same atom')
                 continue
             if self.orig_path[i+1] in self.existing_interactions[vo.identifier]:
                 editable_mol = decrease_bond_order(editable_mol, vo, self.orig_path[i+1])
+                #print('decrease')
             else:
-                editable_mol = increase_bond_order(editable_mol, vo, self.orig_path[i+1])  
-        
+                editable_mol = increase_bond_order(editable_mol, vo, self.orig_path[i+1])
+                #print('increase')
         # take care of the terminal vos of the path -> connect or leave radical site
-        if self.connect_end_vos and self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired():
+        if self.connect_end_vos and self.orig_path[start_idx].atom_idx == self.orig_path[end_idx].atom_idx:
+            pass
+        elif self.connect_end_vos and self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired():
             editable_mol = increase_bond_order(editable_mol, self.orig_path[0], self.orig_path[-1]) # finish covalent path
         elif (not self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired()) and \
                 self.orig_path[start_idx].num_electrons == 1 and self.modified_path[end_idx].num_electrons == 1: # fix radical sites
@@ -393,12 +409,11 @@ class OrbitalGraph:
         """
         all_intrafragment_paths = [[] for _ in self.numbered_smiles.split('.')]
 
-        show = False
-
         # initialize
         for vo in self.localized_configuration.get_vos():
             new_path = []
-            partner_vos = self.get_interacting_orbitals(vo) 
+            partner_vos = self.get_interacting_orbitals(vo)
+
             if len(partner_vos) == 0:
                 new_path.append(vo)
                 if vo.num_electrons == 2 and vo.atom_type in metal_symbols: # for oxidative addition we need a lone pair and empty orbital
@@ -414,13 +429,23 @@ class OrbitalGraph:
                     new_path.append(partner_vos[0])
                 elif vo.num_electrons == 1 and partner_vos[0].num_electrons != 1: # 2c1e/2c3e
                     new_path.append(partner_vos[0]) # put the other vo first so that you can leave this out during re-pairing (it will be an end-point)
-                    new_path.append(vo) 
+                    new_path.append(vo)
+                elif vo.num_electrons == 2 and partner_vos[0].num_electrons == 0: # empty orbital + lone pair, bond description in metals
+                    new_path.append(vo)
+                    new_path.append(partner_vos[0])
 
                 if len(self.get_interacting_orbitals(partner_vos[0])) == 2: # 3c systems
                     remaining_vo = [vo3 for vo3 in self.get_interacting_orbitals(partner_vos[0]) if vo3 != vo]
                     new_path.append(remaining_vo[0])
             else:
-                continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities; 
+                if vo.atom_type in metal_symbols and vo.num_electrons == 1:
+                    for partner_vo in partner_vos:
+                        if partner_vo.num_electrons == 1:
+                            new_path.append(vo)
+                            new_path.append(partner_vo)
+                            break
+                else:
+                    continue # in a 3c system, starting from either of the two extremes is enough to capture all possibilities;
                          # in 2c3e or 2c1e you do not need to start from the empty/doubly filled VO (this is already treated later on)
             all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(new_path)
 
@@ -457,10 +482,10 @@ class OrbitalGraph:
 
         if self.nbo:
             # adding the delocalized vos that were obtaing with NBO and secondary interaction analysis
-            for delocalized_vos in self.localized_configuration.delocalized_vos_systems:
-                vo = delocalized_vos[0]
-                all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(delocalized_vos)
-
+            for secondary_vos in self.localized_configuration.secondary_vos_systems:
+                vo = secondary_vos[0]
+                all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(secondary_vos)
+        #import pdb; pdb.set_trace()
         return all_intrafragment_paths
     
     def get_interfragment_paths(self, all_intrafragment_paths):
@@ -504,6 +529,11 @@ class OrbitalGraph:
                         continue
                 # inverse the final fragment_path before attachment (so that lone pairs etc. end up at the very end)
                 terminal_path = combination[-1].copy()
+
+                # because you are inserting a double bond in this way ... vo(Me) + vo(NoMe) + vo(Me)
+                if lp_empty_vo and len(terminal_path) != 2:
+                    continue
+
                 new_interfragment_path += terminal_path[::-1]
 
                 if lp_empty_vo:
@@ -535,7 +565,7 @@ class OrbitalGraph:
         intrafragment_paths = self.get_intrafragment_paths(max_length=max_length)[0]
         terminal_fragment_paths = [path.copy()[::-1] for path in intrafragment_paths if path[0].num_electrons != 1]
         intramolecular_paths = intrafragment_paths.copy()
-
+        #import pdb; pdb.set_trace()
         # For now, we only consider combinations of up to 3 intrafragment paths
         for _ in range(2):
             extra_paths = []
@@ -544,11 +574,21 @@ class OrbitalGraph:
                     if len(extension) % 2 != 0:
                         continue # you only want paths that can be further extended
                     extended_path = current_path + extension
+
+                    atom_indices = [vo.atom_idx for vo in extended_path]
+                    atom_types = [vo.atom_type for vo in extended_path]
+
                     # only keep non-intercrossing paths
-                    if len(set([vo.atom_idx for vo in extended_path])) == len([vo.atom_idx for vo in extended_path]):
+                    if len(set(atom_indices)) == len(atom_indices):
                         extra_paths.append(extended_path)
                     else:
-                        continue
+                        duplicates = [atom_idx for atom_idx in atom_indices if atom_indices.count(atom_idx) > 1]
+
+                        if any(extended_path[i].atom_type in metal_symbols for i, atom_idx in enumerate(atom_indices)
+                               if atom_idx in duplicates) and (len(atom_indices)-len(set(atom_indices))) == 1:
+                            extra_paths.append(extended_path)
+                        else:
+                            continue
             intramolecular_paths += extra_paths
 
         extra_paths = []
@@ -559,8 +599,8 @@ class OrbitalGraph:
                         (len(set([vo.atom_idx for vo in extended_path])) == len([vo.atom_idx for vo in extended_path])):
                         extra_paths.append(path + terminal_fragment_path)
         intramolecular_paths += extra_paths
-        
-        return intramolecular_paths
+        intramolecular_paths_filtered = [path for path in intramolecular_paths if len(path) > 1]
+        return intramolecular_paths_filtered
 
     def generate_products(self, all_paths, allow_zwitterions):
         """
@@ -666,7 +706,7 @@ class ReactingSystem:
         """Process NBO atoms, add them to the editable version of the molecule, and create Atom objects."""
         atoms = []
         smiles_list = self.numbered_smiles.split('.')
-        num_electrons = extract_electrons_based_bond_matrix(self.nbo_lines, smiles_list)
+        num_electrons, lp_per_atom = extract_electrons_based_bond_matrix(self.nbo_lines, smiles_list)
 
         for atom in self.orig_mol.GetAtoms():
             atom_idx = atom.GetAtomMapNum()
@@ -674,6 +714,10 @@ class ReactingSystem:
             atom_is_upper_3rd_row = (atom.GetSymbol() in upper_3rd_row_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
             num_valence_electrons = num_electrons[atom_idx]
+            if atom_is_metal:
+                n_doubly_occ = lp_per_atom[atom_idx]
+            else:
+                n_doubly_occ = None
             atoms.append(
                 AtomNBO(
                     molecule=self,
@@ -681,7 +725,8 @@ class ReactingSystem:
                     atom_type=atom.GetSymbol(),
                     idx=atom_idx,
                     num_valence_electrons=num_valence_electrons,
-                    metal=atom_is_metal
+                    metal=atom_is_metal,
+                    n_doubly_occ=n_doubly_occ
                 )
             )
 

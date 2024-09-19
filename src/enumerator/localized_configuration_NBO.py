@@ -34,6 +34,7 @@ class ValenceOrbital:
         self.num_electrons = 0
         self.paired = False
         self.lp_idx = None
+        self.lv_idx = None
 
         # set an identifier attribute that is unique across the entire reacting system
         self.identifier = f'{self.atom_idx}_{self.idx}'
@@ -58,6 +59,10 @@ class ValenceOrbital:
         """Sets the lone pair index from an NBO calculation."""
         self.lp_idx = lp_idx
 
+    def set_lone_vacancy_idx(self, lv_idx):
+        """Sets the lone vacancy index from an NBO calculation."""
+        self.lv_idx = lv_idx
+
     def __str__(self) -> str:
         return (
             f"self.atom_idx: {str(self.atom_idx)}; self.idx: {str(self.idx)};"
@@ -73,7 +78,7 @@ class AtomNBO:
 
     def __init__(
             self, molecule: "Molecule", atom, atom_type: str, idx: int, num_valence_electrons: int,
-            metal=False
+            metal=False, n_doubly_occ=None
     ):
         self.molecule = molecule
         self.atom = atom
@@ -83,6 +88,7 @@ class AtomNBO:
         self.num_valence_orbitals = atom_to_num_VOs(self.atom_type)
         self.num_valence_electrons = num_valence_electrons
         self.metal = metal
+        self.n_doubly_occ = n_doubly_occ
 
         for vo_idx in range(self.num_valence_orbitals):
             self.valence_orbitals.append(
@@ -99,7 +105,10 @@ class AtomNBO:
 
     def occupy_vos(self):
         """Occupies the valence orbitals associated with the atom, based on the number of valence electrons present."""
-        n_doubly_occ = max(0, (self.num_valence_electrons - self.num_valence_orbitals))
+        if self.n_doubly_occ:
+            n_doubly_occ = self.n_doubly_occ
+        else:
+            n_doubly_occ = max(0, (self.num_valence_electrons - self.num_valence_orbitals))
         n_singly_occ = self.num_valence_electrons - n_doubly_occ * 2
 
         for vo in self.valence_orbitals:
@@ -115,13 +124,12 @@ class AtomNBO:
 class LocalizedConfigurationNBO:
     def __init__(self, numbered_smiles, atoms, nbo_lines):
         self.mapping_orbital_system_bonds = {}
-        self.orbital_systems_list, self.raw_smiles = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
+        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
         self.secondary_interactions = extract_secondary_interactions(numbered_smiles, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
-        self.delocalized_vos_systems = self.get_delocalized_vos()
-
+        self.secondary_vos_systems = self.get_secondary_interacting_vos()
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
     # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
@@ -130,6 +138,7 @@ class LocalizedConfigurationNBO:
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
         lone_pairs: Dict[int, List[int]] = dict()
+        lone_vacancy: Dict[int, List[int]] = dict()
 
         smiles_list = numbered_smiles.split('.')
 
@@ -138,11 +147,12 @@ class LocalizedConfigurationNBO:
             ordered_smiles = ordering_smiles(smiles)
 
             line_0 = " ------------------ Lewis ------------------------------------------------------\n"
-            line_1 = " ---------------- non-Lewis ----------------------------------------------------\n"
             idx_0 = nbo_lines[idx].index(line_0)
-            idx_1 = nbo_lines[idx].index(line_1)
 
-            for line in nbo_lines[idx][idx_0 + 1: idx_1]:
+            for line in nbo_lines[idx][idx_0 + 1:]:
+
+                if 'BD*' in line:
+                    break
 
                 if 'BD' in line:
                     atom_1 = int(line[25:28])
@@ -161,6 +171,12 @@ class LocalizedConfigurationNBO:
                     lp_idx = int(line[20:22])
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, []) + [lp_idx]
+
+                if 'LV' in line:
+                    atom = int(line[25:28])
+                    lv_idx = int(line[20:22])
+                    atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
+                    lone_vacancy[atom_in_numbered_smiles] = lone_vacancy.get(atom_in_numbered_smiles, []) + [lv_idx]
 
         # construct all the orbital systems
         orbital_system_idx = 0
@@ -181,6 +197,16 @@ class LocalizedConfigurationNBO:
                         self.mapping_orbital_system_bonds[
                             atom_lp_idx] = self.mapping_orbital_system_bonds.get(atom_lp_idx, []) + [
                             new_orbital_system]
+                    if vo.num_electrons == 0 and atom.idx in lone_vacancy.keys():
+                        if lone_vacancy[atom.idx]:
+                            lv_idxs = lone_vacancy[atom.idx]
+                            lv_idx = lv_idxs.pop()
+                            vo.set_lone_vacancy_idx(lv_idxs)
+                            atom_lv_idx = f"{atom.idx}#{lv_idx}"
+                            self.mapping_orbital_system_bonds[
+                                atom_lv_idx] = self.mapping_orbital_system_bonds.get(atom_lv_idx, []) + [
+                                new_orbital_system]
+
                     new_orbital_system.add_vo(vo)
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
@@ -229,8 +255,7 @@ class LocalizedConfigurationNBO:
                 if ed_new_mol.GetBondBetweenAtoms(idx_1 - 1, idx_2 - 1) == None:
                     ed_new_mol.AddBond(idx_1 - 1, idx_2 - 1, bond_type)
 
-
-        return orbital_systems, Chem.MolToSmiles(ed_new_mol)
+        return orbital_systems, Chem.MolToSmiles(ed_new_mol), orbital_system_idx
 
     # TODO: you are losing lone pairs here
     def select_active_orbital_systems(self):
@@ -266,16 +291,17 @@ class LocalizedConfigurationNBO:
 
         return vo_to_orbital_system_dict
 
-    def get_delocalized_vos(self):
+    def get_secondary_interacting_vos(self):
 
         secondary_interactions = self.secondary_interactions
         delocalized_vos = []
+
         if secondary_interactions:
             for interaction in secondary_interactions:
                 vos = []
                 donor = interaction[0]
                 acceptor = interaction[1]
-
+                energy = interaction[2]
                 donor_orbital_systems = self.mapping_orbital_system_bonds[donor]
                 acceptor_orbital_systems = self.mapping_orbital_system_bonds[acceptor]
 
@@ -288,6 +314,13 @@ class LocalizedConfigurationNBO:
                     if orbital_system in self.active_orbital_systems_list:
                         for vo in orbital_system.vos:
                             vos.append(vo)
+
+                if energy > 85.0:  # strong secondary interaction are perceived as a "bond"
+                    new_orbital_system = LocalizedOrbitalSystem(self.orbital_system_idx)
+                    for vo in vos:
+                        new_orbital_system.add_vo(vo)
+                    self.orbital_system_idx += 1
+                    self.active_orbital_systems_list.add(new_orbital_system)
 
                 delocalized_vos.append(vos)
         return delocalized_vos

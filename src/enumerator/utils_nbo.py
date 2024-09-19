@@ -135,6 +135,7 @@ def extract_nbo_lines(name):
 def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
 
     electrons_per_atom = dict()
+    lp_per_atom = dict()
 
     line_0 = " ------------------ Lewis ------------------------------------------------------\n"
     line_1 = " ---------------- non-Lewis ----------------------------------------------------\n"
@@ -159,8 +160,9 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
                 atom = int(line[25:28])
                 atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                 electrons_per_atom[atom_in_numbered_smiles] = electrons_per_atom.get(atom_in_numbered_smiles, 0) + 2
+                lp_per_atom[atom_in_numbered_smiles] = lp_per_atom.get(atom_in_numbered_smiles, 0) + 1
 
-    return electrons_per_atom
+    return electrons_per_atom, lp_per_atom
 
 
 def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
@@ -181,8 +183,11 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
                 continue
 
             lp_idx = None
+            lv_idx = None
 
-            if float(line.split()[-3]) > threshold:
+            energy = float(line.split()[-3])
+
+            if energy > threshold:
 
                 if line[35:37] == 'RY':
                     continue
@@ -196,15 +201,23 @@ def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
                 if line[35:38] == 'BD*':
                     acceptor_atom_idxs = (int(line[45:47]), int(line[51:53]))
 
+                if line[35:37] == 'LV':
+                    acceptor_atom_idxs = (int(line[45:47]),)
+                    lv_idx = (int(line[39:41]))
+
                 donor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in donor_atom_idxs]
                 if lp_idx:
                     donor_bond = f"{donor_idx_numbered_smiles[0]}_{lp_idx}"
                 else:
                     donor_bond = f"{donor_idx_numbered_smiles[0]}-{donor_idx_numbered_smiles[1]}"
-                acceptor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in acceptor_atom_idxs]
-                acceptor_bond = f"{acceptor_idx_numbered_smiles[0]}-{acceptor_idx_numbered_smiles[1]}"
 
-                interactions.append((donor_bond, acceptor_bond))
+                acceptor_idx_numbered_smiles = [ordered_smiles[atom_idx - 1].split(':')[-1] for atom_idx in acceptor_atom_idxs]
+                if lv_idx:
+                    acceptor_bond = f"{acceptor_idx_numbered_smiles[0]}#{lv_idx}"
+                else:
+                    acceptor_bond = f"{acceptor_idx_numbered_smiles[0]}-{acceptor_idx_numbered_smiles[1]}"
+
+                interactions.append((donor_bond, acceptor_bond, energy))
 
     return interactions
 

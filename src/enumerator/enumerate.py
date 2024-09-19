@@ -36,11 +36,11 @@ def get_thermodynamically_feasible_products():
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir
         )
         #print(products)
-        print(len(products))
+        #print(len(products))
         product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
 
         for k in product_energies_dict.keys():
-            logger.info(k)
+            logger.info(f"{k}  {product_energies_dict[k]}")
         logger.info(len(product_energies_dict))
         feasible_products_dict = dict(
             (k, product_energies_dict[k])
