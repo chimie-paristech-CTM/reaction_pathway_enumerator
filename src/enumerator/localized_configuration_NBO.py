@@ -2,7 +2,7 @@ import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 from enumerator.utils import ordering_smiles
-from enumerator.utils_nbo import extract_secondary_interactions, check_lp_within_secondary_interaction
+from enumerator.utils_nbo import extract_secondary_interactions_raw, check_lp_within_secondary_interaction
 from rdkit import Chem
 
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
@@ -122,14 +122,16 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, numbered_smiles, atoms, nbo_lines):
+    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction):
+        self.threshold_ssi = threshold_strong_sec_interaction
         self.mapping_orbital_system_bonds = {}
         self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
-        self.secondary_interactions = extract_secondary_interactions(numbered_smiles, nbo_lines)
+        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
+        self.strong_sec_int_orbital_systems_list = set()
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
-        self.secondary_vos_systems = self.get_secondary_interacting_vos()
+        self.secondary_interaction_vos_systems = self.get_secondary_interacting_vos()
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
     # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
@@ -267,7 +269,7 @@ class LocalizedConfigurationNBO:
             system_info = f'{orbital_system.get_num_electrons()}, {set(orbital_system.get_heavy_atoms())}, {len(orbital_system.get_atoms())}, {orbital_system.get_lp_idx()}'
             if orbital_system.is_lp():
                 lp_idx = orbital_system.vos[0].lp_idx
-                if not check_lp_within_secondary_interaction(self.secondary_interactions, lp_idx):
+                if not check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
                     already_covered_systems.add(system_info)
 
             if system_info not in already_covered_systems:
@@ -293,8 +295,8 @@ class LocalizedConfigurationNBO:
 
     def get_secondary_interacting_vos(self):
 
-        secondary_interactions = self.secondary_interactions
-        delocalized_vos = []
+        secondary_interactions = self.secondary_interactions_raw
+        secondary_interaction_vos = []
 
         if secondary_interactions:
             for interaction in secondary_interactions:
@@ -314,16 +316,18 @@ class LocalizedConfigurationNBO:
                     if orbital_system in self.active_orbital_systems_list:
                         for vo in orbital_system.vos:
                             vos.append(vo)
+                            if vo.atom_type in metal_symbols:
+                                secondary_interaction_vos.append(vos[-2:][::-1].copy())
 
-                if energy > 85.0:  # strong secondary interaction are perceived as a "bond"
+                if energy > self.threshold_ssi:
                     new_orbital_system = LocalizedOrbitalSystem(self.orbital_system_idx)
                     for vo in vos:
                         new_orbital_system.add_vo(vo)
                     self.orbital_system_idx += 1
-                    self.active_orbital_systems_list.add(new_orbital_system)
+                    self.strong_sec_int_orbital_systems_list.add(new_orbital_system)
 
-                delocalized_vos.append(vos)
-        return delocalized_vos
+                secondary_interaction_vos.append(vos)
+        return secondary_interaction_vos
 
     def set_vo_list(self):
         """

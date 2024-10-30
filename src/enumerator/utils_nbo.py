@@ -165,7 +165,7 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     return electrons_per_atom, lp_per_atom
 
 
-def extract_secondary_interactions(numbered_smiles, nbo_lines, threshold=11.5):
+def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, threshold=11.5):
 
     smiles_list = numbered_smiles.split('.')
     interactions = []

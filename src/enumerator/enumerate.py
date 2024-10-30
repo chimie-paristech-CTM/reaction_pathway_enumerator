@@ -17,7 +17,9 @@ def get_args():
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
     parser.add_argument("--print-configuration", action="store_true", default=False)
     parser.add_argument("--nbo", action="store_true", default=False)
-    parser.add_argument("--nbo_dir", action="store", default=None)
+    parser.add_argument("--nbo-dir", action="store", default=None)
+    parser.add_argument("--threshold-sec-interaction", action="store", default=11.5)
+    parser.add_argument("--threshold-strong-sec-interaction", action="store", type=float, default=85.0)
 
     return parser.parse_args()
 
@@ -28,12 +30,13 @@ def get_thermodynamically_feasible_products():
     logger = create_logger(name='output')
 
     if args.print_configuration:
-        reacting_system = ReactingSystem(args.smiles, args.nbo, args.nbo_dir)
+        reacting_system = ReactingSystem(args.smiles, args.nbo, args.nbo_dir, args.threshold_strong_sec_interaction)
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
         products = enumerate_potential_products(
-            args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir
+            args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir,
+            args.threshold_strong_sec_interaction
         )
         #print(products)
         #print(len(products))
@@ -54,7 +57,8 @@ def get_thermodynamically_feasible_products():
         print(len(product_energies_dict))
 
 
-def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None):
+def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
+                                 threshold_strong_sec_interaction=85.0):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -64,11 +68,12 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
         allow_zwitterions (bool, optional): Whether or not to allow the generation of zwitterions
         nbo (bool, optional): Use NBO
         nbo_dir (str, optional): Directory with NBO output
+        threshold_strong_sec_interaction (float, optional): Threshold for strong secondary interaction
 
     Returns:
         list: A list of product SMILES.
     """
-    reacting_system = ReactingSystem(smiles, nbo, nbo_dir)
+    reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 

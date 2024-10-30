@@ -25,11 +25,12 @@ upper_3rd_row_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
 
 class Reaction:
 
-    def __init__(self, orig_mol, vo_list, existing_interactions, conventional_path=True):
+    def __init__(self, orig_mol, vo_list, existing_interactions, strong_secondary_interactions, conventional_path=True):
         self.orig_mol = orig_mol
         self.orig_path = vo_list
         self.modified_path = deepcopy(vo_list)
         self.existing_interactions = existing_interactions
+        self.strong_secondary_interactions = strong_secondary_interactions
         self.reduction_process_metal = False
 
         self.ignore_first_vo = False
@@ -94,8 +95,6 @@ class Reaction:
             self.modified_path[start_idx].num_electrons = self.orig_path[end_idx].num_electrons
             self.modified_path[end_idx].num_electrons = 1
 
-
-    
     # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
     # For now you can ignore this however since this is inherently problematic with SMILES.
     def generate_smiles(self, allow_zwitterions=True):
@@ -120,10 +119,13 @@ class Reaction:
 
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
+            #print(vo.identifier)
+            #print(self.orig_path[i+1].identifier)
             if self.orig_path[i+1].atom_idx == vo.atom_idx:
                 #print('same atom')
                 continue
-            if self.orig_path[i+1] in self.existing_interactions[vo.identifier]:
+            if self.orig_path[i+1] in self.existing_interactions[vo.identifier] or \
+               self.orig_path[i+1] in self.strong_secondary_interactions[vo.identifier]:
                 editable_mol = decrease_bond_order(editable_mol, vo, self.orig_path[i+1])
                 #print('decrease')
             else:
@@ -199,10 +201,12 @@ class OrbitalGraph:
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
         self.secondary_interactions = {}
+        self.strong_secondary_interactions = {}
 
         self.add_vos_to_graph()
         self.add_existing_interactions()
         self.add_potential_interactions()
+        self.add_strong_secondary_interactions()
 
         self.delocalized_orbital_systems = self.construct_delocalized_systems()
         self.vo_to_deloc_orbital_systems_dict = self.get_vo_to_deloc_orbital_systems_dict() 
@@ -236,6 +240,8 @@ class OrbitalGraph:
                 self.existing_interactions[vo.identifier] = set()
             if vo not in self.potential_intrafragment_interactions:
                 self.potential_intrafragment_interactions[vo.identifier] = set()
+            if vo not in self.strong_secondary_interactions:
+                self.strong_secondary_interactions[vo.identifier] = set()
             if vo not in self.secondary_interactions:
                 self.secondary_interactions[vo.identifier] = set()
         
@@ -248,6 +254,16 @@ class OrbitalGraph:
                 for i, vo in enumerate(orbital_system.vos[:-1]):
                     self.existing_interactions[vo.identifier].add(orbital_system.vos[i+1])
                     self.existing_interactions[orbital_system.vos[i+1].identifier].add(vo)
+
+    def add_strong_secondary_interactions(self):
+        """
+        Add strong secondary interactions between valence orbitals within the same orbital system.
+        """
+        for orbital_system in self.localized_configuration.strong_sec_int_orbital_systems_list:
+            if len(orbital_system.vos) > 1:
+                for i, vo in enumerate(orbital_system.vos[:-1]):
+                    self.strong_secondary_interactions[vo.identifier].add(orbital_system.vos[i+1])
+                    self.strong_secondary_interactions[orbital_system.vos[i+1].identifier].add(vo)
 
     def add_potential_interactions(self):
         """
@@ -481,8 +497,8 @@ class OrbitalGraph:
                 paths_to_extend = new_paths_to_extend
 
         if self.nbo:
-            # adding the delocalized vos that were obtaing with NBO and secondary interaction analysis
-            for secondary_vos in self.localized_configuration.secondary_vos_systems:
+            # adding the delocalized vos that were obtained with NBO and secondary interaction analysis
+            for secondary_vos in self.localized_configuration.secondary_interaction_vos_systems:
                 vo = secondary_vos[0]
                 all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(secondary_vos)
         #import pdb; pdb.set_trace()
@@ -621,11 +637,11 @@ class OrbitalGraph:
         unique_products = set()
         for path in tqdm(all_paths):
 
-            if (self.localized_configuration.vo_to_orbital_system_dict[path[0].identifier].is_conventional() and \
-                self.localized_configuration.vo_to_orbital_system_dict[path[-1].identifier].is_conventional()):
-                reaction = Reaction(self.orig_mol, path, self.existing_interactions, conventional_path=True)
+            if (self.localized_configuration.vo_to_orbital_system_dict[path[0].identifier].is_conventional() and
+                    self.localized_configuration.vo_to_orbital_system_dict[path[-1].identifier].is_conventional()):
+                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, conventional_path=True)
             else:
-                reaction = Reaction(self.orig_mol, path, self.existing_interactions, conventional_path=False) 
+                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, conventional_path=False)
 
             smiles = reaction.generate_smiles(allow_zwitterions=allow_zwitterions)
 
@@ -644,9 +660,11 @@ class OrbitalGraph:
 class ReactingSystem:
     """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
-    def __init__(self, smiles: str, nbo: bool = False, nbo_dir=None):
+    def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
+                 threshold_strong_secondary_interaction: float = 85.0):
         self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
         self.nbo = nbo
+        self.threshold_ssi = threshold_strong_secondary_interaction
         print(self.numbered_smiles)
 
         self.num_atoms = self.orig_mol.GetNumAtoms()
@@ -739,7 +757,7 @@ class ReactingSystem:
 
     def set_up_localized_configuration_nbo(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
-        return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines)
+        return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""
