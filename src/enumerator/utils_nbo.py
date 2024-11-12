@@ -182,6 +182,9 @@ def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, threshold=11.
             if line.startswith(' within unit') or line.startswith(' from unit') or line.isspace():
                 continue
 
+            if 'None above threshold' in line:
+                break
+
             lp_idx = None
             lv_idx = None
 

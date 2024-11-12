@@ -4,6 +4,8 @@ from tqdm import tqdm
 from enumerator.reacting_system import ReactingSystem
 from enumerator.get_energies import get_system_energy
 from enumerator.utils import create_logger
+from rdkit.Chem.Draw import MolsToGridImage, rdMolDraw2D
+from rdkit import Chem
 
 HARTREE_TO_EV = 27.2114
 
@@ -50,6 +52,7 @@ def get_thermodynamically_feasible_products():
             for k in product_energies_dict.keys()
             if product_energies_dict[k] < 0
         )
+        print_rdkit_mol(product_energies_dict)
 
         #print(feasible_products_dict)
         print(len(feasible_products_dict))
@@ -100,3 +103,19 @@ def get_energy_dict(reactants, products, solvent):
             continue
 
     return energy_dict
+
+
+def print_rdkit_mol(products):
+
+    smiles_list = []
+    legend_list = []
+
+    for key in products.keys():
+        smiles_list.append(key)
+        legend_list.append(f"{products[key]:.3f}")
+        smiles_mol = [Chem.MolFromSmiles(smile) for smile in smiles_list]
+
+    img = MolsToGridImage(mols=smiles_mol, legends=legend_list, molsPerRow=5)
+    img.save('output.png')
+
+
