@@ -259,11 +259,12 @@ class OrbitalGraph:
         """
         Add strong secondary interactions between valence orbitals within the same orbital system.
         """
-        for orbital_system in self.localized_configuration.strong_sec_int_orbital_systems_list:
-            if len(orbital_system.vos) > 1:
-                for i, vo in enumerate(orbital_system.vos[:-1]):
-                    self.strong_secondary_interactions[vo.identifier].add(orbital_system.vos[i+1])
-                    self.strong_secondary_interactions[orbital_system.vos[i+1].identifier].add(vo)
+        if self.nbo:
+            for orbital_system in self.localized_configuration.strong_sec_int_orbital_systems_list:
+                if len(orbital_system.vos) > 1:
+                    for i, vo in enumerate(orbital_system.vos[:-1]):
+                        self.strong_secondary_interactions[vo.identifier].add(orbital_system.vos[i+1])
+                        self.strong_secondary_interactions[orbital_system.vos[i+1].identifier].add(vo)
 
     def add_potential_interactions(self):
         """
