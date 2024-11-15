@@ -474,6 +474,8 @@ class OrbitalGraph:
             while len(paths_to_extend) > 0:
                 new_paths_to_extend = []
                 for path in paths_to_extend:
+                    if len(path) >= max_length:
+                        continue
                     for neighbor in self.get_intrafragment_neighbors(path[-1]):
                         partners_of_neighbor = self.get_interacting_orbitals(neighbor)
                         if len(partners_of_neighbor) == 0 or len(partners_of_neighbor) == 2:
@@ -674,7 +676,8 @@ class ReactingSystem:
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
                  threshold_strong_secondary_interaction: float = 85.0):
-        self.orig_mol, self.numbered_smiles = self.parse_smiles(smiles)
+        self.orig_mol, self.numbered_smiles, self.orig_atom_idxs = self.parse_smiles(smiles)
+        self.organometallic = self.check_if_reaction_organometallic()
         self.nbo = nbo
         self.threshold_ssi = threshold_strong_secondary_interaction
         print(self.numbered_smiles)
@@ -688,7 +691,6 @@ class ReactingSystem:
                 self.nbo_lines = get_nbo(self.numbered_smiles)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
-            #self.numbered_smiles = self.localized_configuration.raw_smiles
             self.orbital_graph = self.set_up_orbital_graph()
         else:
             self.atoms = self.set_up_atoms()
@@ -701,8 +703,27 @@ class ReactingSystem:
         mol = Chem.AddHs(mol)  # always add H's to make bonding correct
         Chem.Kekulize(mol) # change to kekulized smiles to remove aromatic bonds
         [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
+        numbered_smiles = Chem.MolToSmiles(mol)
+        orig_atom_idxs = list(map(int, mol.GetProp("_smilesAtomOutputOrder")[1:-2].split(",")))
 
-        return mol, Chem.MolToSmiles(mol)
+        return mol, numbered_smiles, orig_atom_idxs
+
+    def check_if_reaction_organometallic(self):
+        """
+        Check if the reacting system is organometallic.
+
+        Returns:
+        - bool: True if organometallic, False otherwise.
+
+        Notes:
+        - The function examines the atomic symbols of atoms in the reactant molecule.
+        - It checks if any of the symbols match those in the 'metal_symbols'.
+        """
+
+        for atom in self.orig_mol.GetAtoms():
+            if atom.GetSymbol() in metal_symbols:
+                return True
+        return False
 
     def set_up_atoms(self):
         """Process rdkit_atoms, add them to the editable version of the molecule, and create Atom objects."""
@@ -736,12 +757,11 @@ class ReactingSystem:
         """Process NBO atoms, add them to the editable version of the molecule, and create Atom objects."""
         atoms = []
         smiles_list = self.numbered_smiles.split('.')
-        num_electrons, lp_per_atom = extract_electrons_based_bond_matrix(self.nbo_lines, smiles_list)
+        num_electrons, lp_per_atom = extract_electrons_based_bond_matrix(self.nbo_lines, smiles_list, self.organometallic)
 
         for atom in self.orig_mol.GetAtoms():
             atom_idx = atom.GetAtomMapNum()
             atom_is_metal = (atom.GetSymbol() in metal_symbols)
-            atom_is_upper_3rd_row = (atom.GetSymbol() in upper_3rd_row_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
             num_valence_electrons = num_electrons[atom_idx]
             if atom_is_metal:
@@ -769,7 +789,8 @@ class ReactingSystem:
 
     def set_up_localized_configuration_nbo(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
-        return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi)
+        return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi,
+                                         self.organometallic)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""

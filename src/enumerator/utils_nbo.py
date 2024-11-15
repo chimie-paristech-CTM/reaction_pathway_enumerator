@@ -132,7 +132,7 @@ def extract_nbo_lines(name):
     return nbo_lines
 
 
-def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
+def extract_electrons_based_bond_matrix(nbo_lines, smiles_list, organometallic):
 
     electrons_per_atom = dict()
     lp_per_atom = dict()
@@ -141,7 +141,7 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     line_1 = " ---------------- non-Lewis ----------------------------------------------------\n"
 
     for idx_smi, smiles in enumerate(smiles_list):
-        ordered_smiles = ordering_smiles(smiles)
+        ordered_smiles = ordering_smiles(smiles, organometallic)
         idx_0 = nbo_lines[idx_smi].index(line_0)
         idx_1 = nbo_lines[idx_smi].index(line_1)
 
@@ -165,13 +165,13 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list):
     return electrons_per_atom, lp_per_atom
 
 
-def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, threshold=11.5):
+def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic, threshold=11.5):
 
     smiles_list = numbered_smiles.split('.')
     interactions = []
 
     for idx, smiles in enumerate(smiles_list):
-        ordered_smiles = ordering_smiles(smiles)
+        ordered_smiles = ordering_smiles(smiles, organometallic)
 
         line_0 = " SECOND ORDER PERTURBATION THEORY ANALYSIS OF FOCK MATRIX IN NBO BASIS\n"
         line_1 = " NATURAL BOND ORBITALS (Summary):\n"

@@ -122,11 +122,11 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction):
+    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic):
         self.threshold_ssi = threshold_strong_sec_interaction
         self.mapping_orbital_system_bonds = {}
-        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines)
-        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines)
+        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, organometallic)
+        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.strong_sec_int_orbital_systems_list = set()
         self.vo_list = self.set_vo_list()
@@ -135,7 +135,7 @@ class LocalizedConfigurationNBO:
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
     # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
-    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines):
+    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines, organometallic):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
@@ -146,7 +146,8 @@ class LocalizedConfigurationNBO:
 
         for idx, smiles in enumerate(smiles_list):
 
-            ordered_smiles = ordering_smiles(smiles)
+            ordered_smiles = ordering_smiles(smiles, organometallic)
+            print(ordered_smiles)
 
             line_0 = " ------------------ Lewis ------------------------------------------------------\n"
             idx_0 = nbo_lines[idx].index(line_0)
@@ -177,6 +178,7 @@ class LocalizedConfigurationNBO:
                 if 'LV' in line:
                     atom = int(line[25:28])
                     lv_idx = int(line[20:22])
+                    print(atom)
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_vacancy[atom_in_numbered_smiles] = lone_vacancy.get(atom_in_numbered_smiles, []) + [lv_idx]
 

@@ -22,6 +22,7 @@ def get_args():
     parser.add_argument("--nbo-dir", action="store", default=None)
     parser.add_argument("--threshold-sec-interaction", action="store", default=11.5)
     parser.add_argument("--threshold-strong-sec-interaction", action="store", type=float, default=85.0)
+    parser.add_argument("--ts-tools", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -36,7 +37,7 @@ def get_thermodynamically_feasible_products():
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
-        products = enumerate_potential_products(
+        products, smiles_reactants = enumerate_potential_products(
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir,
             args.threshold_strong_sec_interaction
         )
@@ -59,6 +60,10 @@ def get_thermodynamically_feasible_products():
 
         print(len(product_energies_dict))
 
+        if args.ts_tools:
+            print_input_ts_tools(smiles_reactants, products)
+
+
 
 def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
                                  threshold_strong_sec_interaction=85.0):
@@ -80,7 +85,7 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
-    return products
+    return products, reacting_system.numbered_smiles
 
 
 def get_energy_dict(reactants, products, solvent):
@@ -119,3 +124,9 @@ def print_rdkit_mol(products):
     img.save('output.png')
 
 
+def print_input_ts_tools(smiles_reactants, products):
+
+    with open('reactions_input.txt', 'w') as file:
+        for idx, prod in enumerate(products):
+            rxn_smiles = f"{smiles_reactants}>>{prod}"
+            file.write(f"R{idx}  {rxn_smiles}\n")

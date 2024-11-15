@@ -143,20 +143,22 @@ def clear_numbering(smiles):
         return None
 
 
-def ordering_smiles(numbered_smiles):
+def ordering_smiles(numbered_smiles, organometallic):
     """
     Ordering the numbered SMILES representation
 
     Args:
         numbered_smiles (str): The numbered SMILES representation of the molecule.
+        organometallic (bool): Organometallic system
 
     Returns:
         list: The numbered SMILES representation of the molecule ordered by atom numbering.
     """
 
-
     pattern = r'\[(.*?)\]'
     smiles_elements = re.findall(pattern, numbered_smiles)
-    ordered_smiles = sorted(smiles_elements, key=(lambda x: int(x.split(':')[-1])))
-
-    return ordered_smiles
+    if not organometallic:
+        ordered_smiles = sorted(smiles_elements, key=(lambda x: int(x.split(':')[-1])))
+        return ordered_smiles
+    else:
+        return smiles_elements
