@@ -26,12 +26,12 @@ def read_from_chk(smiles, dir_nbo):
     return dict_nbo_lines
 
 
-def get_nbo(smiles):
+def get_nbo(smiles, nproc):
     """Execute a NBO calculation with G16"""
     smiles_list = smiles.split('.')
     dict_nbo_lines = {}
     for idx, smi in enumerate(smiles_list):
-        nbo_lines = exec_nbo_calculation(idx, smi, g16_path='/opt/gaussian/g16/C01/g16')
+        nbo_lines = exec_nbo_calculation(idx, smi, g16_path='/opt/gaussian/g16/C01/g16', n_cores=nproc)
         dict_nbo_lines[idx] = nbo_lines
     return dict_nbo_lines
 

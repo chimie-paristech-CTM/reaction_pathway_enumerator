@@ -675,7 +675,7 @@ class ReactingSystem:
     """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
-                 threshold_strong_secondary_interaction: float = 85.0):
+                 threshold_strong_secondary_interaction: float = 85.0, nproc: int = 4):
         self.orig_mol, self.numbered_smiles, self.orig_atom_idxs = self.parse_smiles(smiles)
         self.organometallic = self.check_if_reaction_organometallic()
         self.nbo = nbo
@@ -688,7 +688,7 @@ class ReactingSystem:
             if nbo_dir:
                 self.nbo_lines = read_from_chk(self.numbered_smiles, nbo_dir)
             else:
-                self.nbo_lines = get_nbo(self.numbered_smiles)
+                self.nbo_lines = get_nbo(self.numbered_smiles, nproc)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
             self.orbital_graph = self.set_up_orbital_graph()

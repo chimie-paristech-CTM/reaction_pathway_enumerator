@@ -147,7 +147,6 @@ class LocalizedConfigurationNBO:
         for idx, smiles in enumerate(smiles_list):
 
             ordered_smiles = ordering_smiles(smiles, organometallic)
-            print(ordered_smiles)
 
             line_0 = " ------------------ Lewis ------------------------------------------------------\n"
             idx_0 = nbo_lines[idx].index(line_0)

@@ -27,7 +27,7 @@ def make_tmp_directory():
 
 
 def mol_to_coords(
-    mol: "Chem.Mol", smi: str, optimizer: str = "rdkit", solvent: str = None
+    mol: "Chem.Mol", smi: str, optimizer: str = "rdkit", solvent: str = None, nproc: int = 4
 ) -> Tuple[List[str], List[Tuple[float, float, float]]]:
     """
     Returns the atoms and coordinates of a molecule as arrays.
@@ -69,9 +69,9 @@ def mol_to_coords(
                 f.write(xyzfile)
 
             if solvent != None:
-                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent}"
+                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent} -P {nproc}"
             else:
-                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
+                command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} -P {nproc}"
             subprocess.check_call(
                 command.split(),
                 stdout=open("xtblog.txt", "w"),
@@ -106,7 +106,7 @@ def mol_to_coords(
 
 
 def get_molecule_energy(
-    molecule: str, optimizer: str = "rdkit", solvent: str = None
+    molecule: str, optimizer: str = "rdkit", solvent: str = None, nproc: int = 4
 ) -> Optional[float]:
     """
     Returns the (potential) energy of a single molecule (given as a smiles string) in hartree.
@@ -118,7 +118,7 @@ def get_molecule_energy(
     mol = Chem.MolFromSmiles(molecule)
     canonical_smi = Chem.MolToSmiles(mol, canonical=True)
     if canonical_smi != molecule:
-        return get_molecule_energy(canonical_smi, optimizer=optimizer, solvent=solvent)
+        return get_molecule_energy(canonical_smi, optimizer=optimizer, solvent=solvent, nproc=nproc)
     mol = Chem.AddHs(mol)
 
     if molecule == "[H+]":
@@ -143,9 +143,9 @@ def get_molecule_energy(
 
         energy = None
         if solvent != None:
-            command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent}"
+            command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent} -P {nproc}"
         else:
-            command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons}"
+            command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} -P {nproc}"
 
         subprocess.run(
             command,
@@ -199,7 +199,7 @@ def output_3d_coords(
 
 
 def get_system_energy(
-    smi: str, optimizer: str = "rdkit", solvent: str = None
+    smi: str, optimizer: str = "rdkit", solvent: str = None, nproc: int = 4
 ) -> Optional[float]:
     """
     Returns the (potential) energy of the system (given as a smiles string) in eV.
@@ -213,7 +213,7 @@ def get_system_energy(
 
     for molecule in molecules:
         molecule_energy = get_molecule_energy(
-            molecule, optimizer=optimizer, solvent=solvent
+            molecule, optimizer=optimizer, solvent=solvent, nproc=nproc
         )
         if molecule_energy is None:
             return None

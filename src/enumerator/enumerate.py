@@ -23,6 +23,7 @@ def get_args():
     parser.add_argument("--threshold-sec-interaction", action="store", default=11.5)
     parser.add_argument("--threshold-strong-sec-interaction", action="store", type=float, default=85.0)
     parser.add_argument("--ts-tools", action="store_true", default=False)
+    parser.add_argument("--nproc", action="store", type=int, default=4)
 
     return parser.parse_args()
 
@@ -39,11 +40,11 @@ def get_thermodynamically_feasible_products():
     else:
         products, smiles_reactants = enumerate_potential_products(
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir,
-            args.threshold_strong_sec_interaction
+            args.threshold_strong_sec_interaction, args.nproc
         )
         #print(products)
         #print(len(products))
-        product_energies_dict = get_energy_dict(args.smiles, products, args.solvent)
+        product_energies_dict = get_energy_dict(args.smiles, products, args.solvent, args.nproc)
 
         for k in product_energies_dict.keys():
             logger.info(f"{k}  {product_energies_dict[k]}")
@@ -66,7 +67,7 @@ def get_thermodynamically_feasible_products():
 
 
 def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
-                                 threshold_strong_sec_interaction=85.0):
+                                 threshold_strong_sec_interaction=85.0, nproc=4):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -77,30 +78,32 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
         nbo (bool, optional): Use NBO
         nbo_dir (str, optional): Directory with NBO output
         threshold_strong_sec_interaction (float, optional): Threshold for strong secondary interaction
+        nproc (int, optional): Number of process
 
     Returns:
         list: A list of product SMILES.
     """
-    reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction)
+    reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction, nbo)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
     return products, reacting_system.numbered_smiles
 
 
-def get_energy_dict(reactants, products, solvent):
+def get_energy_dict(reactants, products, solvent, nproc):
     """Obtains a dictionary of relative product energies.
 
     Args:
         reactants (str): SMILES string corresponding to the reactants.
         products (str): SMILES string corresponding to the products.
         solvent (str): SMILES string corresponding to the solvent.
+        nproc (int): Number of process.
 
     Returns:
         dict: a dictionary of SMILES and their corresponding energies.
     """
     energy_dict = {}
-    reactant_energy = get_system_energy(reactants, solvent=solvent)
+    reactant_energy = get_system_energy(reactants, solvent=solvent, nproc=nproc)
     for product in tqdm(products, total=len(products)):
         try:
             energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_EV
