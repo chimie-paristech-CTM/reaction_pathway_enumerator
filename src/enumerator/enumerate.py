@@ -1,5 +1,6 @@
 import argparse
 from tqdm import tqdm
+from time import time
 
 from enumerator.reacting_system import ReactingSystem
 from enumerator.get_energies import get_system_energy
@@ -31,6 +32,7 @@ def get_args():
 def get_thermodynamically_feasible_products():
     """Returns a list of feasible product molecules based on the SMILES input."""
     args = get_args()
+    t0 = time()
     logger = create_logger(name='output')
 
     if args.print_configuration:
@@ -63,6 +65,9 @@ def get_thermodynamically_feasible_products():
 
         if args.ts_tools:
             print_input_ts_tools(smiles_reactants, products)
+
+        t1 = time()
+        logger.info(f"Time of execution: {t1 - t0} seconds.")
 
 
 
