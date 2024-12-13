@@ -48,6 +48,8 @@ def exec_nbo_calculation(idx, smiles, g16_path, n_cores=16, basis_set='def2svp',
     g16.keywords.set_opt_basis_set(basis_set)
     ade.Config.n_cores = n_cores
     ade.Config.max_core = 1000
+    ade.Config.num_conformers = 600
+    ade.Config.rmsd_threshold = 0.15
     molecule.find_lowest_energy_conformer(hmethod=g16)
     molecule.optimise(method=g16)
     generate_input_gaussian(molecule, n_cores, basis_set, functional)

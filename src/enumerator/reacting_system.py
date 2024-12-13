@@ -491,7 +491,7 @@ class OrbitalGraph:
                                 new_path.append(neighbor)
                                 new_path.append(partners_of_neighbor[0])
                                 fragment_paths.append(new_path)
-                                if self.get_number_of_delocalized_orbital_systems(new_path) < max_length:
+                                if self.get_number_of_delocalized_orbital_systems(new_path) < 2:
                                     new_paths_to_extend.append(new_path)
                                 else:
                                     continue
@@ -675,11 +675,13 @@ class ReactingSystem:
     """A class corresponding to reacting systems (can consist of multiple molecules)."""
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
-                 threshold_strong_secondary_interaction: float = 85.0, nproc: int = 4):
+                 threshold_strong_secondary_interaction: float = 85.0, nproc: int = 4,
+                 threshold_secondary_interaction: float = 11.5):
         self.orig_mol, self.numbered_smiles, self.orig_atom_idxs = self.parse_smiles(smiles)
         self.organometallic = self.check_if_reaction_organometallic()
         self.nbo = nbo
         self.threshold_ssi = threshold_strong_secondary_interaction
+        self.threshold_si = threshold_secondary_interaction
         print(self.numbered_smiles)
 
         self.num_atoms = self.orig_mol.GetNumAtoms()
@@ -790,7 +792,7 @@ class ReactingSystem:
     def set_up_localized_configuration_nbo(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
         return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi,
-                                         self.organometallic)
+                                         self.organometallic, self.threshold_si)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""

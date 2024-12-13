@@ -122,11 +122,11 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic):
+    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic, threshold_sec_interaction):
         self.threshold_ssi = threshold_strong_sec_interaction
         self.mapping_orbital_system_bonds = {}
         self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, organometallic)
-        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic)
+        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic, threshold_sec_interaction)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.strong_sec_int_orbital_systems_list = set()
         self.vo_list = self.set_vo_list()
@@ -307,16 +307,23 @@ class LocalizedConfigurationNBO:
                 energy = interaction[2]
                 donor_orbital_systems = self.mapping_orbital_system_bonds[donor]
                 acceptor_orbital_systems = self.mapping_orbital_system_bonds[acceptor]
+                metal_in_donor = False
 
                 for orbital_system in donor_orbital_systems:
                     if orbital_system in self.active_orbital_systems_list:
                         for vo in orbital_system.vos:
                             vos.append(vo)
+                            if vo.atom_type in metal_symbols:
+                                metal_in_donor = True
 
                 for orbital_system in acceptor_orbital_systems:
                     if orbital_system in self.active_orbital_systems_list:
-                        for vo in orbital_system.vos:
+                        for idx, vo in enumerate(orbital_system.vos):
                             vos.append(vo)
+
+                            # the secondary interaction in metals contain several atoms ... sometimes you need only the metal center and one more ... case 2A cobalt
+                            if metal_in_donor and idx == 0:
+                                secondary_interaction_vos.append(vos[::-1].copy())
                             if vo.atom_type in metal_symbols:
                                 secondary_interaction_vos.append(vos[-2:][::-1].copy())
 
