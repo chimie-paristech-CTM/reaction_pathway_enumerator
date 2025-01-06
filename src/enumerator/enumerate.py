@@ -19,6 +19,7 @@ def get_args():
     parser.add_argument("--max-length", action="store", type=int, default=2)
     parser.add_argument("--allow-zwitterions", action="store_true", default=False)
     parser.add_argument("--print-configuration", action="store_true", default=False)
+    parser.add_argument("--print-all-paths", action="store_true", default=False)
     parser.add_argument("--nbo", action="store_true", default=False)
     parser.add_argument("--nbo-dir", action="store", default=None)
     parser.add_argument("--threshold-sec-interaction", action="store", type=float, default=11.5)
@@ -44,7 +45,7 @@ def get_thermodynamically_feasible_products():
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
-        products, smiles_reactants = enumerate_potential_products(
+        products, smiles_reactants, products_with_paths = enumerate_potential_products(
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir,
             args.threshold_strong_sec_interaction, args.nproc, args.threshold_sec_interaction
         )
@@ -60,6 +61,13 @@ def get_thermodynamically_feasible_products():
             for k in product_energies_dict.keys()
             if product_energies_dict[k] < 0
         )
+
+        if args.print_all_paths:
+            for smi in products_with_paths.keys():
+                logger.info(f"Product: {smi}")
+                for path in products_with_paths[smi]:
+                    logger.info(path)
+
         print_rdkit_mol(product_energies_dict)
 
         #print(feasible_products_dict)
@@ -76,7 +84,8 @@ def get_thermodynamically_feasible_products():
 
 
 def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
-                                 threshold_strong_sec_interaction=85.0, nproc=4, threshold_sec_interaction=11.5):
+                                 threshold_strong_sec_interaction=85.0, nproc=4, threshold_sec_interaction=11.5,
+                                 ):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -95,9 +104,9 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
     """
     reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction, nproc, threshold_sec_interaction)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
-    products = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
+    products, products_with_paths = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
-    return products, reacting_system.numbered_smiles
+    return products, reacting_system.numbered_smiles, products_with_paths
 
 
 def get_energy_dict(reactants, products, solvent, nproc):
@@ -131,7 +140,8 @@ def print_rdkit_mol(products):
     for key in products.keys():
         smiles_list.append(key)
         legend_list.append(f"{products[key]:.3f}")
-        smiles_mol = [Chem.MolFromSmiles(smile) for smile in smiles_list]
+
+    smiles_mol = [Chem.MolFromSmiles(smile) for smile in smiles_list]
 
     img = MolsToGridImage(mols=smiles_mol, legends=legend_list, molsPerRow=5)
     img.save('output.png')

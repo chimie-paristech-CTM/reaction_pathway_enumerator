@@ -141,11 +141,11 @@ class LocalizedConfigurationNBO:
         initial_bonds: Dict[int, List[int]] = dict()
         lone_pairs: Dict[int, List[int]] = dict()
         lone_vacancy: Dict[int, List[int]] = dict()
+        so_orbs: Dict[int, List[int]] = dict()
 
         smiles_list = numbered_smiles.split('.')
 
         for idx, smiles in enumerate(smiles_list):
-
             ordered_smiles = ordering_smiles(smiles, organometallic)
 
             line_0 = " ------------------ Lewis ------------------------------------------------------\n"
@@ -154,6 +154,9 @@ class LocalizedConfigurationNBO:
             for line in nbo_lines[idx][idx_0 + 1:]:
 
                 if 'BD*' in line:
+                    break
+
+                if 'RY' in line:  #case for single atom
                     break
 
                 if 'BD' in line:
@@ -168,18 +171,27 @@ class LocalizedConfigurationNBO:
                         initial_bonds[atom_2_in_numbered_smiles] = initial_bonds.get(atom_2_in_numbered_smiles, []) + [
                             atom_1_in_numbered_smiles]
 
+                # lone pair
                 if 'LP' in line:
                     atom = int(line[25:28])
                     lp_idx = int(line[20:22])
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_pairs[atom_in_numbered_smiles] = lone_pairs.get(atom_in_numbered_smiles, []) + [lp_idx]
 
+                # lone vacancy
                 if 'LV' in line:
                     atom = int(line[25:28])
                     lv_idx = int(line[20:22])
                     print(atom)
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_vacancy[atom_in_numbered_smiles] = lone_vacancy.get(atom_in_numbered_smiles, []) + [lv_idx]
+
+                # singly occupied
+                if 'SO' in line:
+                    atom = int(line[25:28])
+                    so_idx = int(line[20:22])
+                    atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
+                    so_orbs[atom_in_numbered_smiles] = so_orbs.get(atom_in_numbered_smiles, []) + [so_idx]
 
         # construct all the orbital systems
         orbital_system_idx = 0
@@ -209,6 +221,9 @@ class LocalizedConfigurationNBO:
                             self.mapping_orbital_system_bonds[
                                 atom_lv_idx] = self.mapping_orbital_system_bonds.get(atom_lv_idx, []) + [
                                 new_orbital_system]
+                if vo.num_electrons == 1:
+                    new_orbital_system = LocalizedOrbitalSystem(orbital_system_idx)
+
 
                     new_orbital_system.add_vo(vo)
                     orbital_systems.append(new_orbital_system)
@@ -335,7 +350,52 @@ class LocalizedConfigurationNBO:
                     self.strong_sec_int_orbital_systems_list.add(new_orbital_system)
 
                 secondary_interaction_vos.append(vos)
+                extended_secondary_interactions_vos = self.get_extended_secondary_interactions_vos(secondary_interactions)
+
+                if extended_secondary_interactions_vos:
+                    for extended_vos in extended_secondary_interactions_vos:
+                        secondary_interaction_vos.append(extended_vos)
+
         return secondary_interaction_vos
+
+    def get_extended_secondary_interactions_vos(self, secondary_interactions):
+
+        all_extended_systems = []
+
+        for idx, first_pair in enumerate(secondary_interactions):
+            donor_first = first_pair[0]
+            acceptor_first = first_pair[1]
+            extended_system = [donor_first, acceptor_first]
+            for extended_pair in secondary_interactions[idx + 1:]:
+                donor_extended = extended_pair[0]
+                acceptor_extended = extended_pair[1]
+                if acceptor_first == donor_extended and donor_first != acceptor_extended and acceptor_extended not in extended_system:
+                    extended_system.append(acceptor_extended)
+                    acceptor_first = acceptor_extended
+                    donor_first = donor_extended
+
+            # cyclic systems, if you start in the second pair, you will finish with the first pair case of fulvene
+            if int(extended_system[-1].split('-')[0]) < int(extended_system[0].split('-')[0]):
+                del extended_system[-1]
+
+            if len(extended_system) > 2:
+                all_extended_systems.append(extended_system)
+
+        extended_secondary_interaction_vos = []
+        if all_extended_systems:
+            for interaction in all_extended_systems:
+                vos = []
+                for pair in interaction:
+                    orbital_systems = self.mapping_orbital_system_bonds[pair]
+
+                    for orbital_system in orbital_systems:
+                        if orbital_system in self.active_orbital_systems_list:
+                            for vo in orbital_system.vos:
+                                vos.append(vo)
+
+                extended_secondary_interaction_vos.append(vos)
+
+        return extended_secondary_interaction_vos
 
     def set_vo_list(self):
         """

@@ -4,6 +4,7 @@ from rdkit import Chem
 import re
 from itertools import permutations, product
 from tqdm import tqdm
+from typing import Dict, List
 
 from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order
 from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smiles
@@ -117,6 +118,7 @@ class Reaction:
                     new_charge = init_charge - (modified_vo.num_electrons - vo.num_electrons)
                     editable_mol.GetAtomWithIdx(vo.atom_idx - 1).SetFormalCharge(new_charge)
 
+
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
             #print(vo.identifier)
@@ -133,6 +135,7 @@ class Reaction:
                 #print('increase')
         # take care of the terminal vos of the path -> connect or leave radical site
         if self.connect_end_vos and self.orig_path[start_idx].atom_idx == self.orig_path[end_idx].atom_idx:
+            print('here')
             pass
         elif self.connect_end_vos and self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired():
             editable_mol = increase_bond_order(editable_mol, self.orig_path[0], self.orig_path[-1]) # finish covalent path
@@ -491,7 +494,7 @@ class OrbitalGraph:
                                 new_path.append(neighbor)
                                 new_path.append(partners_of_neighbor[0])
                                 fragment_paths.append(new_path)
-                                if self.get_number_of_delocalized_orbital_systems(new_path) < 2:
+                                if self.get_number_of_delocalized_orbital_systems(new_path) < max_length:
                                     new_paths_to_extend.append(new_path)
                                 else:
                                     continue
@@ -649,6 +652,7 @@ class OrbitalGraph:
         """
         products = []
         unique_products = set()
+        products_with_paths: Dict[str, List[str]] = dict()
         for path in tqdm(all_paths):
 
             if (self.localized_configuration.vo_to_orbital_system_dict[path[0].identifier].is_conventional() and
@@ -664,8 +668,9 @@ class OrbitalGraph:
                 if smiles_without_numbering not in unique_products:
                     unique_products.add(smiles_without_numbering)
                     products.append(smiles)
-
-        return products
+                products_with_paths[smiles_without_numbering] = products_with_paths.get(smiles_without_numbering,
+                                                                                        []) + [smiles]
+        return products, products_with_paths
 
     def __str__(self) -> str:
         return f'existing: {self.existing_interactions}; secondary: {self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
@@ -835,8 +840,8 @@ class ReactingSystem:
         Returns:
             list: List of generated products.
         """
-        products = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
-        return products
+        products, products_with_paths = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
+        return products, products_with_paths
 
     def filter_paths(self, paths, idx_list):
         """

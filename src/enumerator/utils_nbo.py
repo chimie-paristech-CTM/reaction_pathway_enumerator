@@ -222,7 +222,10 @@ def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometalli
                 else:
                     acceptor_bond = f"{acceptor_idx_numbered_smiles[0]}-{acceptor_idx_numbered_smiles[1]}"
 
-                interactions.append((donor_bond, acceptor_bond, energy))
+                if any((acceptor_bond, donor_bond) == (item[0], item[1]) for item in interactions):
+                    continue
+                else:
+                    interactions.append((donor_bond, acceptor_bond, energy))
 
     return interactions
 
