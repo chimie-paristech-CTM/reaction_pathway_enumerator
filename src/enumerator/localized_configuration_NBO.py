@@ -122,10 +122,10 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic, threshold_sec_interaction):
+    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic, threshold_sec_interaction, radicalic):
         self.threshold_ssi = threshold_strong_sec_interaction
         self.mapping_orbital_system_bonds = {}
-        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, organometallic)
+        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, organometallic, radicalic)
         self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic, threshold_sec_interaction)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.strong_sec_int_orbital_systems_list = set()
@@ -135,13 +135,12 @@ class LocalizedConfigurationNBO:
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
     # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
-    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines, organometallic):
+    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines, organometallic, radicalic):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
         lone_pairs: Dict[int, List[int]] = dict()
         lone_vacancy: Dict[int, List[int]] = dict()
-        so_orbs: Dict[int, List[int]] = dict()
 
         smiles_list = numbered_smiles.split('.')
 
@@ -185,14 +184,6 @@ class LocalizedConfigurationNBO:
                     print(atom)
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_vacancy[atom_in_numbered_smiles] = lone_vacancy.get(atom_in_numbered_smiles, []) + [lv_idx]
-
-                # singly occupied
-                if 'SO' in line:
-                    atom = int(line[25:28])
-                    so_idx = int(line[20:22])
-                    atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
-                    so_orbs[atom_in_numbered_smiles] = so_orbs.get(atom_in_numbered_smiles, []) + [so_idx]
-
         # construct all the orbital systems
         orbital_system_idx = 0
         for atom in atoms:
@@ -221,9 +212,6 @@ class LocalizedConfigurationNBO:
                             self.mapping_orbital_system_bonds[
                                 atom_lv_idx] = self.mapping_orbital_system_bonds.get(atom_lv_idx, []) + [
                                 new_orbital_system]
-                if vo.num_electrons == 1:
-                    new_orbital_system = LocalizedOrbitalSystem(orbital_system_idx)
-
 
                     new_orbital_system.add_vo(vo)
                     orbital_systems.append(new_orbital_system)
@@ -247,6 +235,24 @@ class LocalizedConfigurationNBO:
                                     self.mapping_orbital_system_bonds[
                                         bond_between_atoms] = self.mapping_orbital_system_bonds.get(bond_between_atoms, []) + [new_orbital_system]
                                     break
+                        elif len(neighbors) == 0 and radicalic and atom.idx in lone_pairs:
+                            lp_idxs = lone_pairs[atom.idx]
+                            lp_idx = lp_idxs.pop()
+                            vo.set_lone_pair_idx(lp_idx)
+                            atom_lp_idx = f"{atom.idx}_{lp_idx}"
+                            self.mapping_orbital_system_bonds[
+                                atom_lp_idx] = self.mapping_orbital_system_bonds.get(atom_lp_idx, []) + [
+                                new_orbital_system]
+                    elif radicalic:
+                        # [Cl] neighbors == None but [CH2]C=CC .. len(neighbors) == 0 once that you finish with the previous loop
+                        # We will test that single-occupancy orbital as LP because NBO treats it this way.
+                        lp_idxs = lone_pairs[atom.idx]
+                        lp_idx = lp_idxs.pop()
+                        vo.set_lone_pair_idx(lp_idx)
+                        atom_lp_idx = f"{atom.idx}_{lp_idx}"
+                        self.mapping_orbital_system_bonds[
+                            atom_lp_idx] = self.mapping_orbital_system_bonds.get(atom_lp_idx, []) + [
+                            new_orbital_system]
                     orbital_systems.append(new_orbital_system)
                     orbital_system_idx += 1
 

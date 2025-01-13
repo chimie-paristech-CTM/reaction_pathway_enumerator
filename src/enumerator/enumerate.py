@@ -26,6 +26,8 @@ def get_args():
     parser.add_argument("--threshold-strong-sec-interaction", action="store", type=float, default=85.0)
     parser.add_argument("--ts-tools", action="store_true", default=False)
     parser.add_argument("--nproc", action="store", type=int, default=4)
+    parser.add_argument("--num-unpaired-elec", action="story", type=int, default=-1,
+                        help="The default option is to use the num-unpaired-elec obtained with RDkit")
 
     return parser.parse_args()
 
@@ -41,7 +43,7 @@ def get_thermodynamically_feasible_products():
 
     if args.print_configuration:
         reacting_system = ReactingSystem(args.smiles, args.nbo, args.nbo_dir, args.threshold_strong_sec_interaction,
-                                         args.nproc, args.threshold_sec_interaction)
+                                         args.nproc, args.threshold_sec_interaction, args.num_unpaired_elec)
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
@@ -85,7 +87,7 @@ def get_thermodynamically_feasible_products():
 
 def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
                                  threshold_strong_sec_interaction=85.0, nproc=4, threshold_sec_interaction=11.5,
-                                 ):
+                                 num_unpaired_elec=-1):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
     Args:
@@ -98,11 +100,18 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
         threshold_strong_sec_interaction (float, optional): Threshold for strong secondary interaction
         threshold_strong_sec_interaction (float, optional): Threshold for secondary interaction
         nproc (int, optional): Number of process
+        num_unpaired_elec (int, optional): Number of unpaired electrons
 
     Returns:
         list: A list of product SMILES.
     """
-    reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction, nproc, threshold_sec_interaction)
+
+    if num_unpaired_elec == -1:
+        mult = -1
+    else:
+        mult = 2*(num_unpaired_elec/2) + 1
+
+    reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction, nproc, threshold_sec_interaction, mult)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
     products, products_with_paths = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 

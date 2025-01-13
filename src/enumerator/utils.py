@@ -102,9 +102,9 @@ def increase_bond_order(editable_mol, vo1, vo2):
 
 def fix_radical_counts_at_endpoints_path(editable_mol, vo_start, vo_end):
     current_num_unpaired_elec_start = editable_mol.GetAtomWithIdx(vo_start.atom_idx - 1).GetNumRadicalElectrons()
-    editable_mol.GetAtomWithIdx(vo_start.atom_idx - 1).SetNumRadicalElectrons(current_num_unpaired_elec_start - 1) 
+    editable_mol.GetAtomWithIdx(vo_start.atom_idx - 1).SetNumRadicalElectrons(current_num_unpaired_elec_start - 1)
     current_num_unpaired_elec_end = editable_mol.GetAtomWithIdx(vo_end.atom_idx - 1).GetNumRadicalElectrons()
-    editable_mol.GetAtomWithIdx(vo_end.atom_idx - 1).SetNumRadicalElectrons(current_num_unpaired_elec_end - 1)
+    editable_mol.GetAtomWithIdx(vo_end.atom_idx - 1).SetNumRadicalElectrons(current_num_unpaired_elec_end + 1)
 
     return editable_mol
 

@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import sys
+import math
 from enumerator.utils import ordering_smiles
 
 
@@ -26,24 +27,27 @@ def read_from_chk(smiles, dir_nbo):
     return dict_nbo_lines
 
 
-def get_nbo(smiles, nproc):
+def get_nbo(smiles, mult, nproc):
     """Execute a NBO calculation with G16"""
     smiles_list = smiles.split('.')
     dict_nbo_lines = {}
     for idx, smi in enumerate(smiles_list):
-        nbo_lines = exec_nbo_calculation(idx, smi, g16_path='/opt/gaussian/g16/C01/g16', n_cores=nproc)
+        nbo_lines = exec_nbo_calculation(idx, smi, mult, g16_path='/opt/gaussian/g16/C01/g16', n_cores=nproc)
         dict_nbo_lines[idx] = nbo_lines
     return dict_nbo_lines
 
 
-def exec_nbo_calculation(idx, smiles, g16_path, n_cores=16, basis_set='def2svp', functional='pbe1pbe'):
+def exec_nbo_calculation(idx, smiles, mult, g16_path, n_cores=16, basis_set='def2svp', functional='pbe1pbe'):
 
     cwd = os.getcwd()
     working_directory = os.path.join(cwd, 'calc')
     if not os.path.exists(working_directory):
         os.makedirs(working_directory)
     os.chdir(working_directory)
-    molecule = Molecule(smiles=smiles, name=f"r{idx}")
+    if mult != -1:
+        molecule = Molecule(smiles=smiles, name=f"r{idx}", mult=mult)
+    else:
+        molecule = Molecule(smiles=smiles, name=f"r{idx}")
     g16.keywords.set_functional(functional)
     g16.keywords.set_opt_basis_set(basis_set)
     ade.Config.n_cores = n_cores
@@ -144,25 +148,39 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list, organometallic):
 
     for idx_smi, smiles in enumerate(smiles_list):
         ordered_smiles = ordering_smiles(smiles, organometallic)
-        idx_0 = nbo_lines[idx_smi].index(line_0)
-        idx_1 = nbo_lines[idx_smi].index(line_1)
+        idxs_0 = [i for i, x in enumerate(nbo_lines[idx_smi]) if x == line_0]
+        idxs_1 = [i for i, x in enumerate(nbo_lines[idx_smi]) if x == line_1]
 
-        for line in nbo_lines[idx_smi][idx_0 + 1: idx_1]:
+        # when S=2, NBO split electrons into alpha/beta ... therefore, the amount of electrons in BD and LP should be divided by 2
+        num_idxs = len(idxs_0)
+        for idx_0, idx_1 in zip(idxs_0, idxs_1):
+            for line in nbo_lines[idx_smi][idx_0 + 1: idx_1]:
 
-            if 'BD' in line:
-                atom_1 = int(line[25:28])
-                atom_2 = int(line[31:34])
-                atom_1_in_numbered_smiles = int(ordered_smiles[atom_1 - 1].split(':')[-1])
-                atom_2_in_numbered_smiles = int(ordered_smiles[atom_2 - 1].split(':')[-1])
+                if 'BD' in line:
+                    atom_1 = int(line[25:28])
+                    atom_2 = int(line[31:34])
+                    atom_1_in_numbered_smiles = int(ordered_smiles[atom_1 - 1].split(':')[-1])
+                    atom_2_in_numbered_smiles = int(ordered_smiles[atom_2 - 1].split(':')[-1])
 
-                electrons_per_atom[atom_1_in_numbered_smiles] = electrons_per_atom.get(atom_1_in_numbered_smiles, 0) + 1
-                electrons_per_atom[atom_2_in_numbered_smiles] = electrons_per_atom.get(atom_2_in_numbered_smiles, 0) + 1
+                    electrons_per_atom[atom_1_in_numbered_smiles] = electrons_per_atom.get(atom_1_in_numbered_smiles, 0) + 1/num_idxs
+                    electrons_per_atom[atom_2_in_numbered_smiles] = electrons_per_atom.get(atom_2_in_numbered_smiles, 0) + 1/num_idxs
 
-            if 'LP' in line:
-                atom = int(line[25:28])
-                atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
-                electrons_per_atom[atom_in_numbered_smiles] = electrons_per_atom.get(atom_in_numbered_smiles, 0) + 2
-                lp_per_atom[atom_in_numbered_smiles] = lp_per_atom.get(atom_in_numbered_smiles, 0) + 1
+                if 'LP' in line:
+                    atom = int(line[25:28])
+                    atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
+                    electrons_per_atom[atom_in_numbered_smiles] = electrons_per_atom.get(atom_in_numbered_smiles, 0) + 2/num_idxs
+                    lp_per_atom[atom_in_numbered_smiles] = lp_per_atom.get(atom_in_numbered_smiles, 0) + 1/num_idxs
+
+        # for conjugated systems, is it possible that the LP is not located in the same atom of the LV ... and you will have atoms with a fractional number of electrons
+        if num_idxs == 2:
+            for atom in lp_per_atom:
+                if electrons_per_atom[atom].is_integer():
+                    continue
+                else:
+                    other_atoms = [idx for idx in electrons_per_atom if electrons_per_atom[idx].is_integer() == False and idx != atom]
+                    electrons_per_atom[atom] = float(math.floor(electrons_per_atom[atom]))
+                    for other_atom in other_atoms:
+                        electrons_per_atom[other_atom] = float(math.ceil(electrons_per_atom[other_atom]))
 
     return electrons_per_atom, lp_per_atom
 

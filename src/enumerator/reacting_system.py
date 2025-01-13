@@ -118,11 +118,8 @@ class Reaction:
                     new_charge = init_charge - (modified_vo.num_electrons - vo.num_electrons)
                     editable_mol.GetAtomWithIdx(vo.atom_idx - 1).SetFormalCharge(new_charge)
 
-
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
-            #print(vo.identifier)
-            #print(self.orig_path[i+1].identifier)
             if self.orig_path[i+1].atom_idx == vo.atom_idx:
                 #print('same atom')
                 continue
@@ -135,7 +132,6 @@ class Reaction:
                 #print('increase')
         # take care of the terminal vos of the path -> connect or leave radical site
         if self.connect_end_vos and self.orig_path[start_idx].atom_idx == self.orig_path[end_idx].atom_idx:
-            print('here')
             pass
         elif self.connect_end_vos and self.orig_path[start_idx].is_paired() and self.orig_path[end_idx].is_paired():
             editable_mol = increase_bond_order(editable_mol, self.orig_path[0], self.orig_path[-1]) # finish covalent path
@@ -681,9 +677,10 @@ class ReactingSystem:
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
                  threshold_strong_secondary_interaction: float = 85.0, nproc: int = 4,
-                 threshold_secondary_interaction: float = 11.5):
+                 threshold_secondary_interaction: float = 11.5, mult: int = -1):
         self.orig_mol, self.numbered_smiles, self.orig_atom_idxs = self.parse_smiles(smiles)
         self.organometallic = self.check_if_reaction_organometallic()
+        self.radicalic = self.check_if_reaction_radicalic()
         self.nbo = nbo
         self.threshold_ssi = threshold_strong_secondary_interaction
         self.threshold_si = threshold_secondary_interaction
@@ -695,7 +692,7 @@ class ReactingSystem:
             if nbo_dir:
                 self.nbo_lines = read_from_chk(self.numbered_smiles, nbo_dir)
             else:
-                self.nbo_lines = get_nbo(self.numbered_smiles, nproc)
+                self.nbo_lines = get_nbo(self.numbered_smiles, mult, nproc)
             self.atoms = self.set_up_atoms_NBO()
             self.localized_configuration = self.set_up_localized_configuration_nbo()
             self.orbital_graph = self.set_up_orbital_graph()
@@ -729,6 +726,19 @@ class ReactingSystem:
 
         for atom in self.orig_mol.GetAtoms():
             if atom.GetSymbol() in metal_symbols:
+                return True
+        return False
+
+    def check_if_reaction_radicalic(self):
+        """
+        Check if the reacting system is radicalic.
+
+        Returns:
+        - bool: True if radicalic, False otherwise.
+        """
+
+        for atom in self.orig_mol.GetAtoms():
+            if atom.GetNumRadicalElectrons():
                 return True
         return False
 
@@ -770,7 +780,7 @@ class ReactingSystem:
             atom_idx = atom.GetAtomMapNum()
             atom_is_metal = (atom.GetSymbol() in metal_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
-            num_valence_electrons = num_electrons[atom_idx]
+            num_valence_electrons = int(num_electrons[atom_idx])
             if atom_is_metal:
                 n_doubly_occ = lp_per_atom[atom_idx]
             else:
@@ -797,7 +807,7 @@ class ReactingSystem:
     def set_up_localized_configuration_nbo(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
         return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi,
-                                         self.organometallic, self.threshold_si)
+                                         self.organometallic, self.threshold_si, self.radicalic)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""
