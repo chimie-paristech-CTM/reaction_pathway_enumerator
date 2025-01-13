@@ -749,9 +749,7 @@ class ReactingSystem:
         rd_periodic_table = Chem.GetPeriodicTable()
         for atom in self.orig_mol.GetAtoms():
             atom_is_metal = (atom.GetSymbol() in metal_symbols)
-            atom_is_upper_3rd_row = (atom.GetSymbol() in upper_3rd_row_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
-            num_valence_orbitals = get_num_bonds_atom(atom)  # every bond should have a valence orbital
             num_valence_electrons = (
                 rd_periodic_table.GetNOuterElecs(atom.GetSymbol())
                 - atom.GetFormalCharge()
@@ -761,10 +759,8 @@ class ReactingSystem:
                     molecule=self,
                     atom_type=atom.GetSymbol(),
                     idx=atom.GetAtomMapNum(),
-                    num_valence_orbitals=num_valence_orbitals,
                     num_valence_electrons=num_valence_electrons,
                     metal=atom_is_metal,
-                    upper_3rd_row=atom_is_upper_3rd_row
                 )
             )
 

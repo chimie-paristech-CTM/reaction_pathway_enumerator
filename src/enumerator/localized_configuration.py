@@ -5,8 +5,6 @@ from enumerator.orbital_systems import LocalizedOrbitalSystem
 metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co", 
     "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
-extra_valence_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
-
 
 # TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
 
@@ -64,24 +62,16 @@ class Atom:
     """A class corresponding to individual atoms."""
 
     def __init__(
-        self, molecule: "Molecule", atom_type: str, idx: int, num_valence_orbitals: int, num_valence_electrons: int,
-            metal=False, upper_3rd_row=False,
+        self, molecule: "Molecule", atom_type: str, idx: int, num_valence_electrons: int,
+            metal=False,
     ):
         self.molecule = molecule
         self.atom_type = atom_type
         self.idx = idx
         self.valence_orbitals = []
-        self.metal = metal
-        self.upper_3rd_row = upper_3rd_row
-        if self.upper_3rd_row:
-            num_valence_orbitals_atom_type = atom_to_num_VOs(self.atom_type)
-            if num_valence_orbitals > num_valence_orbitals_atom_type:
-                self.num_valence_orbitals = num_valence_orbitals
-            else:
-                self.num_valence_orbitals = num_valence_orbitals_atom_type
-        else:
-            self.num_valence_orbitals = atom_to_num_VOs(self.atom_type)
+        self.num_valence_orbitals = atom_to_num_VOs(self.atom_type)
         self.num_valence_electrons = num_valence_electrons
+        self.metal = metal
 
         for vo_idx in range(self.num_valence_orbitals):
             self.valence_orbitals.append(
@@ -93,21 +83,7 @@ class Atom:
                 self.valence_orbitals.append(
                     ValenceOrbital(vo_idx, self.idx, self.atom_type)
                 )
-        """
-        if self.upper_3rd_row: # d orbitals are energetically available
-            if self.num_valence_electrons == 5:
-                extra_orbital = 1
-            elif self.num_valence_electrons == 6:
-                extra_orbital = 2
-            elif self.num_valence_electrons == 7:
-                extra_orbital = 3
-            else:
-                extra_orbital = 0
-            for vo_idx in range(self.num_valence_orbitals, self.num_valence_orbitals + extra_orbital):
-                self.valence_orbitals.append(
-                    ValenceOrbital(vo_idx, self.idx, self.atom_type)
-                )
-        """
+
         self.occupy_vos()
 
     def occupy_vos(self):
