@@ -7,9 +7,13 @@ from typing import List, Tuple, Optional
 import logging
 import subprocess
 import re
+import numpy as np
 
 import contextlib
 from pathlib import Path
+
+ps = Chem.SmilesParserParams()
+ps.removeHs = False
 
 
 @contextlib.contextmanager
@@ -133,6 +137,7 @@ def get_molecule_energy(
             logging.warning("{} in xTB geometry opt for {}".format(e, molecule))
             return None
 
+    bond_matrix_initial = obtain_bond_matrix(mol, None)
     charge = Chem.rdmolops.GetFormalCharge(mol)
     num_unpaired_electrons = Descriptors.NumRadicalElectrons(mol)
     xyzfile = output_3d_coords(atoms, atom_coords, output_format="xyz")
@@ -144,6 +149,8 @@ def get_molecule_energy(
         energy = None
         if solvent != None:
             command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} --alpb {solvent} -P {nproc}"
+        elif len(mol.GetAtoms()) == 1:
+            command = f"xtb tmp.xyz --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} -P {nproc}"
         else:
             command = f"xtb tmp.xyz --opt normal --gfn 2 --chrg {charge} --uhf {num_unpaired_electrons} -P {nproc}"
 
@@ -153,6 +160,10 @@ def get_molecule_energy(
             stdout=open("xtblog.txt", "w"),
             stderr=open(os.devnull, "w"),
         )
+
+        if os.path.isfile("NOT_CONVERGED"):
+            return None
+
         with open("xtblog.txt", "rb") as f:
             lines = f.readlines()
             for line in reversed(lines):
@@ -165,6 +176,10 @@ def get_molecule_energy(
                     break
 
         if energy is None:
+            return None
+        bond_matrix_final = obtain_bond_matrix(mol, 'xtbopt.xyz')
+
+        if (bond_matrix_initial != bond_matrix_final).all():
             return None
 
         logging.info("Energy of {} is {} hartree".format(molecule, energy))
@@ -222,3 +237,47 @@ def get_system_energy(
 
     shutil.rmtree("tmp_{}".format(os.getpid()))
     return total_energy
+
+
+def obtain_bond_matrix(mol, xyzfile):
+    """_summary_
+
+    Args:
+        geom (_type_): _description_
+    """
+
+    pt = Chem.GetPeriodicTable()
+
+    num_atoms = mol.GetNumAtoms()
+    bond_matrix = np.zeros((num_atoms, num_atoms), dtype=int)
+
+    if num_atoms == 1:
+        return np.ones((num_atoms), dtype=int)
+
+    if xyzfile is None and mol:
+
+        for bond in mol.GetBonds():
+            i = bond.GetBeginAtomIdx()
+            j = bond.GetEndAtomIdx()
+            bond_matrix[i][j] = bond_matrix[j][i] = 1
+
+    else:
+        with open(xyzfile, 'r') as f:
+            lines = f.readlines()[2:]
+
+        labels = []
+        geom = []
+
+        for line in lines:
+            label, x, y, z = line.split()
+            labels.append(label)
+            geom.append((float(x), float(y), float(z)))
+
+        for i in range(num_atoms):
+            for j in range(i + 1, len(geom)):
+                cov_bond = pt.GetRcovalent(labels[i]) + pt.GetRcovalent(labels[j])
+                distance = np.linalg.norm(np.array(geom[i]) - np.array(geom[j]))
+                if distance < cov_bond + 0.25:
+                    bond_matrix[i][j] = bond_matrix[j][i] = 1
+
+    return bond_matrix

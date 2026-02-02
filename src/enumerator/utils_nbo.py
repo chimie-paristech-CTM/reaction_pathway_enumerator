@@ -7,6 +7,7 @@ import subprocess
 import sys
 import math
 from enumerator.utils import ordering_smiles
+import random
 
 
 def read_from_chk(smiles, dir_nbo):
@@ -40,7 +41,8 @@ def get_nbo(smiles, mult, nproc):
 def exec_nbo_calculation(idx, smiles, mult, g16_path, n_cores=16, basis_set='def2svp', functional='pbe1pbe'):
 
     cwd = os.getcwd()
-    working_directory = os.path.join(cwd, 'calc')
+
+    working_directory = os.path.join(cwd, f'calc_{random.random()}')
     if not os.path.exists(working_directory):
         os.makedirs(working_directory)
     os.chdir(working_directory)
@@ -189,7 +191,6 @@ def extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometalli
 
     smiles_list = numbered_smiles.split('.')
     interactions = []
-
     for idx, smiles in enumerate(smiles_list):
         ordered_smiles = ordering_smiles(smiles, organometallic)
 

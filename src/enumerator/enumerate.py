@@ -8,7 +8,7 @@ from enumerator.utils import create_logger
 from rdkit.Chem.Draw import MolsToGridImage, rdMolDraw2D
 from rdkit import Chem
 
-HARTREE_TO_EV = 27.2114
+HARTREE_TO_kcal_mol = 627.509608
 
 
 def get_args():
@@ -22,11 +22,11 @@ def get_args():
     parser.add_argument("--print-all-paths", action="store_true", default=False)
     parser.add_argument("--nbo", action="store_true", default=False)
     parser.add_argument("--nbo-dir", action="store", default=None)
-    parser.add_argument("--threshold-sec-interaction", action="store", type=float, default=11.5)
+    parser.add_argument("--threshold-sec-interaction", action="store", type=float, default=12.0)
     parser.add_argument("--threshold-strong-sec-interaction", action="store", type=float, default=85.0)
     parser.add_argument("--ts-tools", action="store_true", default=False)
     parser.add_argument("--nproc", action="store", type=int, default=4)
-    parser.add_argument("--num-unpaired-elec", action="story", type=int, default=-1,
+    parser.add_argument("--num-unpaired-elec", action="store", type=int, default=-1,
                         help="The default option is to use the num-unpaired-elec obtained with RDkit")
 
     return parser.parse_args()
@@ -47,41 +47,49 @@ def get_thermodynamically_feasible_products():
         for orbital_system in reacting_system.localized_configuration.active_orbital_systems_list:
             print(orbital_system)
     else:
-        products, smiles_reactants, products_with_paths = enumerate_potential_products(
+        products, smiles_reactants, products_with_paths, maps_between_smiles = enumerate_potential_products(
             args.smiles, args.idx_list, args.max_length, args.allow_zwitterions, args.nbo, args.nbo_dir,
-            args.threshold_strong_sec_interaction, args.nproc, args.threshold_sec_interaction
+            args.threshold_strong_sec_interaction, args.nproc, args.threshold_sec_interaction, args.num_unpaired_elec
         )
-        #print(products)
-        #print(len(products))
+
         product_energies_dict = get_energy_dict(args.smiles, products, args.solvent, args.nproc)
 
         for k in product_energies_dict.keys():
             logger.info(f"{k}  {product_energies_dict[k]}")
-        logger.info(len(product_energies_dict))
+
         feasible_products_dict = dict(
             (k, product_energies_dict[k])
             for k in product_energies_dict.keys()
-            if product_energies_dict[k] < 0
+            if product_energies_dict[k] < 50.0
         )
 
-        if args.print_all_paths:
-            for smi in products_with_paths.keys():
-                logger.info(f"Product: {smi}")
-                for path in products_with_paths[smi]:
-                    logger.info(path)
+        feasible_paths = []
 
-        print_rdkit_mol(product_energies_dict)
+        for key in feasible_products_dict.keys():
+            smiles_without_numbering = maps_between_smiles[key]
+            if args.print_all_paths:
+                logger.info(f"Product: {smiles_without_numbering}")
+            for product in products_with_paths[smiles_without_numbering]:
+                feasible_paths.append(product)
+                if args.print_all_paths:
+                    logger.info(product)
 
-        #print(feasible_products_dict)
-        print(len(feasible_products_dict))
+        number_paths = 0
+        for key in products_with_paths.keys():
+            number_paths += len(products_with_paths[key])
 
-        print(len(product_energies_dict))
+        logger.info(f"Total number of products with dE_rxn < 50 kcal/mol: {len(feasible_products_dict)}")
+        logger.info(f"Total number of products: {len(product_energies_dict)}")
+        logger.info(f"Total number of paths: {number_paths}")
+        logger.info(f"Total number of feasible (thermodynamic) paths: {len(feasible_paths)}")
 
         if args.ts_tools:
-            print_input_ts_tools(smiles_reactants, products)
+            print_input_ts_tools(smiles_reactants, products, feasible_paths, args.print_all_paths)
 
         t1 = time()
         logger.info(f"Time of execution: {t1 - t0} seconds.")
+
+        print_rdkit_mol(product_energies_dict)
 
 
 
@@ -113,9 +121,9 @@ def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterio
 
     reacting_system = ReactingSystem(smiles, nbo, nbo_dir, threshold_strong_sec_interaction, nproc, threshold_sec_interaction, mult)
     original_paths = reacting_system.generate_reaction_paths(idx_list=idx_list, max_length=max_length)
-    products, products_with_paths = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
+    products, products_with_paths, maps_between_smiles = reacting_system.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
 
-    return products, reacting_system.numbered_smiles, products_with_paths
+    return products, reacting_system.numbered_smiles, products_with_paths, maps_between_smiles
 
 
 def get_energy_dict(reactants, products, solvent, nproc):
@@ -132,9 +140,10 @@ def get_energy_dict(reactants, products, solvent, nproc):
     """
     energy_dict = {}
     reactant_energy = get_system_energy(reactants, solvent=solvent, nproc=nproc)
+
     for product in tqdm(products, total=len(products)):
         try:
-            energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_EV
+            energy_dict[product] = (get_system_energy(product, solvent=solvent) - reactant_energy) * HARTREE_TO_kcal_mol
         except TypeError:
             continue
 
@@ -156,9 +165,16 @@ def print_rdkit_mol(products):
     img.save('output.png')
 
 
-def print_input_ts_tools(smiles_reactants, products):
+def print_input_ts_tools(smiles_reactants, products, feasible_paths, print_all_paths):
 
     with open('reactions_input.txt', 'w') as file:
-        for idx, prod in enumerate(products):
-            rxn_smiles = f"{smiles_reactants}>>{prod}"
-            file.write(f"R{idx}  {rxn_smiles}\n")
+        if print_all_paths:
+            i = 0
+            for smi in feasible_paths:
+                rxn_smiles = f"{smiles_reactants}>>{smi}"
+                file.write(f"R{i} {rxn_smiles}\n")
+                i += 1
+        else:
+            for idx, prod in enumerate(products):
+                rxn_smiles = f"{smiles_reactants}>>{prod}"
+                file.write(f"R{idx}  {rxn_smiles}\n")

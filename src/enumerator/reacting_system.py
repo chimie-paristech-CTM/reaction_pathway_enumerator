@@ -1,13 +1,14 @@
-import pdb
+import itertools
 
 from rdkit import Chem
+from rdkit.Chem import EnumerateStereoisomers
 import re
 from itertools import permutations, product
 from tqdm import tqdm
 from typing import Dict, List
 
-from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order
-from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smiles
+from enumerator.utils import fix_radical_counts_at_endpoints_path, increase_bond_order, decrease_bond_order, fix_bonding_hypervalent_compound
+from enumerator.utils import clear_numbering, get_neighbors_dict, ordering_smiles, generate_stereoisomers
 from enumerator.orbital_systems import DelocalizedOrbitalSystem
 from enumerator.localized_configuration import Atom, LocalizedConfiguration
 from enumerator.localized_configuration_NBO import AtomNBO, LocalizedConfigurationNBO
@@ -19,20 +20,21 @@ from copy import deepcopy
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
-metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
+metal_symbols = ["Si", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
                  "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
 upper_3rd_row_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
 
 class Reaction:
 
-    def __init__(self, orig_mol, vo_list, existing_interactions, strong_secondary_interactions, conventional_path=True):
+    def __init__(self, orig_mol, vo_list, existing_interactions, strong_secondary_interactions, organometallic, conventional_path=True):
         self.orig_mol = orig_mol
         self.orig_path = vo_list
         self.modified_path = deepcopy(vo_list)
         self.existing_interactions = existing_interactions
         self.strong_secondary_interactions = strong_secondary_interactions
         self.reduction_process_metal = False
+        self.organometallic = organometallic
 
         self.ignore_first_vo = False
         self.ignore_final_vo = False
@@ -121,15 +123,13 @@ class Reaction:
         # modify bonding situation
         for i, vo in enumerate(self.orig_path[start_idx:end_idx]):
             if self.orig_path[i+1].atom_idx == vo.atom_idx:
-                #print('same atom')
                 continue
             if self.orig_path[i+1] in self.existing_interactions[vo.identifier] or \
-               self.orig_path[i+1] in self.strong_secondary_interactions[vo.identifier]:
+                (self.orig_path[i+1] in self.strong_secondary_interactions[vo.identifier] and self.organometallic):
                 editable_mol = decrease_bond_order(editable_mol, vo, self.orig_path[i+1])
-                #print('decrease')
             else:
                 editable_mol = increase_bond_order(editable_mol, vo, self.orig_path[i+1])
-                #print('increase')
+
         # take care of the terminal vos of the path -> connect or leave radical site
         if self.connect_end_vos and self.orig_path[start_idx].atom_idx == self.orig_path[end_idx].atom_idx:
             pass
@@ -150,6 +150,9 @@ class Reaction:
             print(e)
             print(self.orig_path, self.modified_path)
             print(Chem.MolToSmiles(editable_mol))
+
+        if self.possible_generation_hypervalent_compound():
+            editable_mol = fix_bonding_hypervalent_compound(editable_mol)
 
         final_smiles = Chem.MolToSmiles(editable_mol)
 
@@ -184,18 +187,34 @@ class Reaction:
 
         return start_idx, end_idx
 
+    def possible_generation_hypervalent_compound(self):
+
+        for vo in self.orig_path:
+            if vo.atom_type in upper_3rd_row_symbols:
+                return True
+
+        return False
+
 
 class OrbitalGraph:
     """ 
     A class corresponding to an abstract graph, where nodes correspond to VOs, 
     and edges correspond to existing and potential intrafragment interactions. 
     """
-    def __init__(self, localized_configuration, numbered_smiles, orig_mol, nbo):
+    def __init__(self, localized_configuration, numbered_smiles, orig_mol, nbo, organometallic):
         self.localized_configuration = localized_configuration
-        self.atom_to_fragment_dict = self.get_atom_to_fragment_dict(numbered_smiles)
-        self.numbered_smiles = numbered_smiles
-        self.orig_mol = orig_mol
         self.nbo = nbo
+        self.organometallic = organometallic
+
+        if self.nbo and not self.organometallic:
+            self.orig_mol = self.localized_configuration.nbo_mol
+            self.numbered_smiles = Chem.MolToSmiles(self.orig_mol)
+        else:
+            self.numbered_smiles = numbered_smiles
+            self.orig_mol = orig_mol
+
+        self.atom_to_fragment_dict = self.get_atom_to_fragment_dict(self.numbered_smiles)
+        self.dipole_idxs = self.check_dipole()
 
         self.existing_interactions = {}
         self.potential_intrafragment_interactions = {}
@@ -280,7 +299,6 @@ class OrbitalGraph:
         neighbors_dict = get_neighbors_dict(self.orig_mol)
         for vo1 in self.localized_configuration.get_vos():
             owning_fragment = self.atom_to_fragment_dict[vo1.atom_idx]
-
             for vo2 in self.localized_configuration.get_vos():
                 # don't include existing interactions
                 if vo2.identifier in self.existing_interactions[vo1.identifier]:
@@ -429,7 +447,6 @@ class OrbitalGraph:
         for vo in self.localized_configuration.get_vos():
             new_path = []
             partner_vos = self.get_interacting_orbitals(vo)
-
             if len(partner_vos) == 0:
                 new_path.append(vo)
                 if vo.num_electrons == 2 and vo.atom_type in metal_symbols: # for oxidative addition we need a lone pair and empty orbital
@@ -441,6 +458,10 @@ class OrbitalGraph:
                         all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(alternative_path)
             elif len(partner_vos) == 1:
                 if vo.num_electrons == 1 and partner_vos[0].num_electrons == 1:
+                    alternative_path = []
+                    alternative_path.append(partner_vos[0])
+                    alternative_path.append(vo)
+                    all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(alternative_path)
                     new_path.append(vo)
                     new_path.append(partner_vos[0])
                 elif vo.num_electrons == 1 and partner_vos[0].num_electrons != 1: # 2c1e/2c3e
@@ -477,6 +498,14 @@ class OrbitalGraph:
                         continue
                     for neighbor in self.get_intrafragment_neighbors(path[-1]):
                         partners_of_neighbor = self.get_interacting_orbitals(neighbor)
+                        if len(partners_of_neighbor) == 0 and neighbor.num_electrons == 2:
+                            new_path = path.copy()
+                            new_path.append(neighbor)
+                            fragment_paths.append(new_path)
+                            if self.get_number_of_delocalized_orbital_systems(new_path) < max_length:
+                                new_paths_to_extend.append(new_path)
+                            else:
+                                continue
                         if len(partners_of_neighbor) == 0 or len(partners_of_neighbor) == 2:
                             continue # you don't want to prematurely end paths
                         elif len(partners_of_neighbor) == 1:
@@ -503,7 +532,19 @@ class OrbitalGraph:
             for secondary_vos in self.localized_configuration.secondary_interaction_vos_systems:
                 vo = secondary_vos[0]
                 all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(secondary_vos)
-        #import pdb; pdb.set_trace()
+                if self.dipole_idxs and len(secondary_vos) == 3:
+                    dipole_path = []
+                    idx_plus, idx_minus = self.dipole_idxs
+                    for i in range(3):
+                        for vo in secondary_vos:
+                            if vo.atom_idx == idx_minus and i == 0:
+                                dipole_path.append(vo)
+                            if vo.atom_idx == idx_plus and i == 2:
+                                dipole_path.append(vo)
+                            if i == 1 and vo.atom_idx != idx_plus and vo.atom_idx != idx_minus:
+                                dipole_path.append(vo)
+                    all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(dipole_path)
+
         return all_intrafragment_paths
 
     def get_interfragment_paths(self, all_intrafragment_paths):
@@ -519,20 +560,14 @@ class OrbitalGraph:
             an interfragment path across multiple fragments.
         """
         all_interfragment_paths = []
-
         # first permutate the fragment order
         potential_fragment_arrangements = list(permutations(list(range(len(all_intrafragment_paths))), len(all_intrafragment_paths)))
         for arrangement in potential_fragment_arrangements:
             intrafragment_paths_reordered = [all_intrafragment_paths[i].copy() for i in arrangement]
             # now make all the possible combinations within the selected fragment order
             all_combinations_list = list(product(*intrafragment_paths_reordered))
-            #a=0
-            #import pdb; pdb.set_trace()
             for combination in all_combinations_list:
-                #if len(combination[0]) == 1 and len(combination[1]) == 1:
-                #    print(a)
-                #    print(combination)
-                #a = a + 1
+
                 lp_empty_vo = False
                 new_interfragment_path = []
 
@@ -551,6 +586,7 @@ class OrbitalGraph:
                         new_interfragment_path += fragment_path
                     else:
                         continue
+
                 # inverse the final fragment_path before attachment (so that lone pairs etc. end up at the very end)
                 terminal_path = combination[-1].copy()
 
@@ -558,14 +594,25 @@ class OrbitalGraph:
                 if lp_empty_vo and len(terminal_path) != 2:
                     continue
 
-                new_interfragment_path += terminal_path[::-1]
+                if self.dipole_idxs:
+                    if new_interfragment_path[0].atom_idx == self.dipole_idxs[1] and new_interfragment_path[-1].atom_idx == self.dipole_idxs[0]:
+                        new_interfragment_path[1:1] = terminal_path[::-1]
+                    else:
+                        new_interfragment_path += terminal_path[::-1]
+                else:
+                    new_interfragment_path += terminal_path[::-1]
 
                 if lp_empty_vo:
                     new_interfragment_path.append(combination[0][1])
                 # remove invalid paths -- you should only keep continuous paths, i.e., when the bridging vos had an interacting orbital to start with
                 # only start looking from the second vo, because you want to retain paths in which there is a 3c orbital system at the end
                 if any([len(self.get_interacting_orbitals(vo)) != 1 for vo in new_interfragment_path[2:-2]]):
-                    continue
+                    if len(new_interfragment_path[2:-2]) != 1:
+                        continue
+                    else:
+                        if new_interfragment_path[2:-2][0].num_electrons != 2:
+                            continue
+
                 # 2 electron deficient or two electron exessive endpoints -> abort
                 if new_interfragment_path[0].num_electrons + new_interfragment_path[-1].num_electrons == 0 or \
                    new_interfragment_path[0].num_electrons + new_interfragment_path[-1].num_electrons == 4:
@@ -594,14 +641,18 @@ class OrbitalGraph:
         intrafragment_paths = self.get_intrafragment_paths(max_length=max_length)[0]
         terminal_fragment_paths = [path.copy()[::-1] for path in intrafragment_paths if path[0].num_electrons != 1]
         intramolecular_paths = intrafragment_paths.copy()
-        #import pdb; pdb.set_trace()
-        # For now, we only consider combinations of up to 3 intrafragment paths
-        for _ in range(2):
+
+        # For now, we only consider combinations of up to 2 intrafragment paths
+        for _ in range(1):
             extra_paths = []
             for current_path in intramolecular_paths:
                 for extension in intrafragment_paths:
                     if len(extension) % 2 != 0:
-                        continue # you only want paths that can be further extended
+                        # check about possible recombination of diradical
+                        if len(current_path) == 1 and len(extension) == 1:
+                            if not current_path[0].num_electrons == extension[0].num_electrons == 1:
+                                continue
+
                     extended_path = current_path + extension
 
                     atom_indices = [vo.atom_idx for vo in extended_path]
@@ -646,27 +697,48 @@ class OrbitalGraph:
         based on the path, and generates the SMILES representation of the product. Only unique
         products are stored in the result list, ensuring that duplicate products are excluded. 
         """
+
         products = []
         unique_products = set()
+        unique_products_enum = set()
         products_with_paths: Dict[str, List[str]] = dict()
+        map_between_smiles = dict()
         for path in tqdm(all_paths):
 
             if (self.localized_configuration.vo_to_orbital_system_dict[path[0].identifier].is_conventional() and
                     self.localized_configuration.vo_to_orbital_system_dict[path[-1].identifier].is_conventional()):
-                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, conventional_path=True)
+                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, self.organometallic, conventional_path=True)
             else:
-                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, conventional_path=False)
+                reaction = Reaction(self.orig_mol, path, self.existing_interactions, self.strong_secondary_interactions, self.organometallic, conventional_path=False)
 
             smiles = reaction.generate_smiles(allow_zwitterions=allow_zwitterions)
 
             if smiles != None:
                 smiles_without_numbering = clear_numbering(smiles)
-                if smiles_without_numbering not in unique_products:
-                    unique_products.add(smiles_without_numbering)
-                    products.append(smiles)
-                products_with_paths[smiles_without_numbering] = products_with_paths.get(smiles_without_numbering,
-                                                                                        []) + [smiles]
-        return products, products_with_paths
+                if smiles_without_numbering:
+                    if smiles_without_numbering not in unique_products:
+                        unique_products.add(smiles_without_numbering)
+                        products.append(smiles)
+                    if smiles not in unique_products_enum:
+                        unique_products_enum.add(smiles)
+                        products_with_paths[smiles_without_numbering] = products_with_paths.get(smiles_without_numbering,
+                                                                                                []) + [smiles]
+                        map_between_smiles[smiles] = map_between_smiles.get(smiles, '') + smiles_without_numbering
+
+        return products, products_with_paths, map_between_smiles
+
+    def check_dipole(self):
+
+        if self.numbered_smiles.count('+') == self.numbered_smiles.count('-') == 1:
+            elements = re.findall(r'\[[^\]]+\]', self.numbered_smiles)
+            for elem in elements:
+                if '-' in elem:
+                    idx_minus = int(elem[elem.index(':')+1:-1])
+                if '+' in elem:
+                    idx_plus = int(elem[elem.index(':')+1:-1])
+            return (idx_plus, idx_minus)
+        else:
+            return None
 
     def __str__(self) -> str:
         return f'existing: {self.existing_interactions}; secondary: {self.secondary_interactions}: intra: {self.potential_intrafragment_interactions}'
@@ -677,7 +749,7 @@ class ReactingSystem:
 
     def __init__(self, smiles: str, nbo: bool = False, nbo_dir: str = None,
                  threshold_strong_secondary_interaction: float = 85.0, nproc: int = 4,
-                 threshold_secondary_interaction: float = 11.5, mult: int = -1):
+                 threshold_secondary_interaction: float = 12.0, mult: int = -1):
         self.orig_mol, self.numbered_smiles, self.orig_atom_idxs = self.parse_smiles(smiles)
         self.organometallic = self.check_if_reaction_organometallic()
         self.radicalic = self.check_if_reaction_radicalic()
@@ -708,7 +780,7 @@ class ReactingSystem:
         Chem.Kekulize(mol) # change to kekulized smiles to remove aromatic bonds
         [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
         numbered_smiles = Chem.MolToSmiles(mol)
-        orig_atom_idxs = list(map(int, mol.GetProp("_smilesAtomOutputOrder")[1:-2].split(",")))
+        orig_atom_idxs = list(map(int, mol.GetProp("_smilesAtomOutputOrder")[1:-1].split(",")))
 
         return mol, numbered_smiles, orig_atom_idxs
 
@@ -738,7 +810,7 @@ class ReactingSystem:
         """
 
         for atom in self.orig_mol.GetAtoms():
-            if atom.GetNumRadicalElectrons():
+            if atom.GetNumRadicalElectrons() and not self.organometallic:
                 return True
         return False
 
@@ -777,7 +849,7 @@ class ReactingSystem:
             atom_is_metal = (atom.GetSymbol() in metal_symbols)
             atom.SetIsAromatic(False)  # remove aromaticity properties
             num_valence_electrons = int(num_electrons[atom_idx])
-            if atom_is_metal:
+            if atom_is_metal and atom_idx in lp_per_atom:
                 n_doubly_occ = lp_per_atom[atom_idx]
             else:
                 n_doubly_occ = None
@@ -803,11 +875,11 @@ class ReactingSystem:
     def set_up_localized_configuration_nbo(self):
         """ Set up a localized configuration with localized orbital systems for the molecule."""
         return LocalizedConfigurationNBO(self.numbered_smiles, self.atoms, self.nbo_lines, self.threshold_ssi,
-                                         self.organometallic, self.threshold_si, self.radicalic)
+                                         self.organometallic, self.threshold_si, self.radicalic, self.orig_mol)
 
     def set_up_orbital_graph(self):
         """ Set up an orbital graph for the molecule."""
-        return OrbitalGraph(self.localized_configuration, self.numbered_smiles, self.orig_mol, self.nbo)
+        return OrbitalGraph(self.localized_configuration, self.numbered_smiles, self.orig_mol, self.nbo, self.organometallic)
 
     def generate_reaction_paths(self, idx_list, max_length):
         """
@@ -846,8 +918,11 @@ class ReactingSystem:
         Returns:
             list: List of generated products.
         """
-        products, products_with_paths = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
-        return products, products_with_paths
+        products, products_with_paths, maps_between_smiles = self.orbital_graph.generate_products(original_paths, allow_zwitterions=allow_zwitterions)
+        stereo_products = generate_stereoisomers(products_with_paths)
+
+        return products, stereo_products, maps_between_smiles
+
 
     def filter_paths(self, paths, idx_list):
         """

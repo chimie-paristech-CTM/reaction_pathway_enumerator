@@ -1,11 +1,11 @@
 import re
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
-from enumerator.utils import ordering_smiles
+from enumerator.utils import ordering_smiles, get_neighbors_idxs
 from enumerator.utils_nbo import extract_secondary_interactions_raw, check_lp_within_secondary_interaction
 from rdkit import Chem
 
-metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
+metal_symbols = ["Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
     "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
 extra_valence_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
@@ -122,11 +122,14 @@ class AtomNBO:
 
 
 class LocalizedConfigurationNBO:
-    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic, threshold_sec_interaction, radicalic):
+    def __init__(self, numbered_smiles, atoms, nbo_lines, threshold_strong_sec_interaction, organometallic,
+                 threshold_sec_interaction, radicalic, orig_mol):
+        self.orig_mol = orig_mol
         self.threshold_ssi = threshold_strong_sec_interaction
+        self.organometallic = organometallic
         self.mapping_orbital_system_bonds = {}
-        self.orbital_systems_list, self.raw_smiles, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, organometallic, radicalic)
-        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, organometallic, threshold_sec_interaction)
+        self.orbital_systems_list, self.nbo_mol, self.orbital_system_idx = self.set_up_localized_orbital_systems(numbered_smiles, atoms, nbo_lines, radicalic)
+        self.secondary_interactions_raw = extract_secondary_interactions_raw(numbered_smiles, nbo_lines, self.organometallic, threshold_sec_interaction)
         self.active_orbital_systems_list = self.select_active_orbital_systems()
         self.strong_sec_int_orbital_systems_list = set()
         self.vo_list = self.set_vo_list()
@@ -135,17 +138,16 @@ class LocalizedConfigurationNBO:
 
     # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
     # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
-    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines, organometallic, radicalic):
+    def set_up_localized_orbital_systems(self, numbered_smiles, atoms, nbo_lines, radicalic):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
         initial_bonds: Dict[int, List[int]] = dict()
         lone_pairs: Dict[int, List[int]] = dict()
         lone_vacancy: Dict[int, List[int]] = dict()
-
         smiles_list = numbered_smiles.split('.')
 
         for idx, smiles in enumerate(smiles_list):
-            ordered_smiles = ordering_smiles(smiles, organometallic)
+            ordered_smiles = ordering_smiles(smiles, self.organometallic)
 
             line_0 = " ------------------ Lewis ------------------------------------------------------\n"
             idx_0 = nbo_lines[idx].index(line_0)
@@ -181,7 +183,6 @@ class LocalizedConfigurationNBO:
                 if 'LV' in line:
                     atom = int(line[25:28])
                     lv_idx = int(line[20:22])
-                    print(atom)
                     atom_in_numbered_smiles = int(ordered_smiles[atom - 1].split(':')[-1])
                     lone_vacancy[atom_in_numbered_smiles] = lone_vacancy.get(atom_in_numbered_smiles, []) + [lv_idx]
         # construct all the orbital systems
@@ -279,7 +280,7 @@ class LocalizedConfigurationNBO:
                 if ed_new_mol.GetBondBetweenAtoms(idx_1 - 1, idx_2 - 1) == None:
                     ed_new_mol.AddBond(idx_1 - 1, idx_2 - 1, bond_type)
 
-        return orbital_systems, Chem.MolToSmiles(ed_new_mol), orbital_system_idx
+        return orbital_systems, ed_new_mol, orbital_system_idx
 
     # TODO: you are losing lone pairs here
     def select_active_orbital_systems(self):
@@ -291,7 +292,7 @@ class LocalizedConfigurationNBO:
             system_info = f'{orbital_system.get_num_electrons()}, {set(orbital_system.get_heavy_atoms())}, {len(orbital_system.get_atoms())}, {orbital_system.get_lp_idx()}'
             if orbital_system.is_lp():
                 lp_idx = orbital_system.vos[0].lp_idx
-                if not check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
+                if check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
                     already_covered_systems.add(system_info)
 
             if system_info not in already_covered_systems:
@@ -348,7 +349,7 @@ class LocalizedConfigurationNBO:
                             if vo.atom_type in metal_symbols:
                                 secondary_interaction_vos.append(vos[-2:][::-1].copy())
 
-                if energy > self.threshold_ssi:
+                if energy > self.threshold_ssi and self.organometallic:
                     new_orbital_system = LocalizedOrbitalSystem(self.orbital_system_idx)
                     for vo in vos:
                         new_orbital_system.add_vo(vo)
@@ -356,10 +357,13 @@ class LocalizedConfigurationNBO:
                     self.strong_sec_int_orbital_systems_list.add(new_orbital_system)
 
                 secondary_interaction_vos.append(vos)
-                extended_secondary_interactions_vos = self.get_extended_secondary_interactions_vos(secondary_interactions)
+                extended_secondary_interactions_vos = self.get_extended_secondary_interactions_vos(secondary_interactions) if not self.organometallic else []
 
                 if extended_secondary_interactions_vos:
+                    extended_secondary_interactions_vos = self.reorder_secondary_interacting_vos(extended_secondary_interactions_vos)
                     for extended_vos in extended_secondary_interactions_vos:
+                        if extended_vos in secondary_interaction_vos:
+                            continue
                         secondary_interaction_vos.append(extended_vos)
 
         return secondary_interaction_vos
@@ -367,7 +371,6 @@ class LocalizedConfigurationNBO:
     def get_extended_secondary_interactions_vos(self, secondary_interactions):
 
         all_extended_systems = []
-
         for idx, first_pair in enumerate(secondary_interactions):
             donor_first = first_pair[0]
             acceptor_first = first_pair[1]
@@ -380,12 +383,20 @@ class LocalizedConfigurationNBO:
                     acceptor_first = acceptor_extended
                     donor_first = donor_extended
 
-            # cyclic systems, if you start in the second pair, you will finish with the first pair case of fulvene
-            if int(extended_system[-1].split('-')[0]) < int(extended_system[0].split('-')[0]):
-                del extended_system[-1]
+                    #check which kind of orbital(BD, LP, LV)
+                    for symbol in ['-', '#', '_']:
+                        if symbol in extended_system[-1]:
+                            symbol_end = symbol
+                        if symbol in extended_system[0]:
+                            symbol_start = symbol
 
-            if len(extended_system) > 2:
-                all_extended_systems.append(extended_system)
+                    # cyclic systems, if you start in the second pair, you will finish with the first pair case of fulvene
+                    if int(extended_system[-1].split(symbol_end)[0]) < int(extended_system[0].split(symbol_start)[0]):
+                        del extended_system[-1]
+
+                    if len(extended_system) > 2:
+                        extended_system_copy = extended_system.copy()
+                        all_extended_systems.append(extended_system_copy)
 
         extended_secondary_interaction_vos = []
         if all_extended_systems:
@@ -402,6 +413,83 @@ class LocalizedConfigurationNBO:
                 extended_secondary_interaction_vos.append(vos)
 
         return extended_secondary_interaction_vos
+
+
+    # the order of the atoms in the secondary interaction NBO sometimes is not sequentially
+    # [C:1](=O:2)[C:3=][C:4] ... in NBO will be ... BD C 1- O 2 ---  BD* C 3- C 4 but the correct systems will be O = C - C = C
+    def reorder_secondary_interacting_vos(self, secondary_interaction_vos):
+
+        mol = self.orig_mol
+        ordered_secondary_interaction_vos = []
+
+        for interaction in secondary_interaction_vos:
+            vos_system = []
+
+            # First check to find the beginning of the system
+            vo1 = interaction[0]
+            vo2 = interaction[1]
+            vo3 = interaction[2]
+
+            ngh_vo1 = get_neighbors_idxs(mol.GetAtomWithIdx(vo1.atom_idx - 1))
+            ngh_vo2 = get_neighbors_idxs(mol.GetAtomWithIdx(vo2.atom_idx - 1))
+            ngh_vo3 = get_neighbors_idxs(mol.GetAtomWithIdx(vo3.atom_idx - 1))
+
+            if vo1.atom_idx in ngh_vo3 and vo2.atom_idx not in ngh_vo3:
+                vos_system.append(vo2)
+                vos_system.append(vo1)
+                vos_system.append(vo3)
+                last_vo_verified = 3
+            elif vo2.atom_idx in ngh_vo3 and vo1.atom_idx not in ngh_vo3:
+                vos_system.append(vo1)
+                vos_system.append(vo2)
+                vos_system.append(vo3)
+                last_vo_verified = 3
+            else:
+                vo4 = interaction[3]
+                ngh_vo4 = get_neighbors_idxs(mol.GetAtomWithIdx(vo4.atom_idx - 1))
+                if vo1.atom_idx in ngh_vo4 and vo2.atom_idx not in ngh_vo4:
+                    vos_system.append(vo2)
+                    vos_system.append(vo1)
+                    vos_system.append(vo4)
+                    vos_system.append(vo3)
+                    last_vo_verified = 4
+                elif vo2.atom_idx in ngh_vo4 and vo1.atom_idx not in ngh_vo4:
+                    vos_system.append(vo1)
+                    vos_system.append(vo2)
+                    vos_system.append(vo4)
+                    vos_system.append(vo3)
+                    last_vo_verified = 4
+                else:
+                    continue
+
+            if len(interaction) == 3:
+                ordered_secondary_interaction_vos.append(vos_system)
+                continue
+            elif len(interaction) == 4 and len(vos_system) == 3:
+                vos_system.append(interaction[3])
+                ordered_secondary_interaction_vos.append(vos_system)
+                continue
+
+            # Order the rest ... in case you need it
+            for vo in interaction[last_vo_verified:]:
+                last_vo = vos_system[last_vo_verified - 1]
+                ngh_vo = get_neighbors_idxs(mol.GetAtomWithIdx(last_vo.atom_idx - 1))
+                if vo.atom_idx in ngh_vo:
+                    vos_system.append(vo)
+                    last_vo_verified = last_vo_verified + 1
+                else:
+                    if last_vo_verified + 2 <= len(interaction):
+                        next_vo = interaction[last_vo_verified + 2]
+                        vos_system.append(next_vo)
+                        vos_system.append(vo)
+                        last_vo_verified = last_vo_verified + 2
+
+            if last_vo_verified > len(interaction):
+                break
+
+            ordered_secondary_interaction_vos.append(vos_system)
+
+        return ordered_secondary_interaction_vos
 
     def set_vo_list(self):
         """
