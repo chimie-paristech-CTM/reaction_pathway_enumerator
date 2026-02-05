@@ -1,9 +1,6 @@
 name: enumerator
 channels:
-  - anaconda
   - conda-forge
-  - pytorch
-  - defaults
 dependencies:
   - ipykernel=6.9
   - pandas=1.4
@@ -11,7 +8,5 @@ dependencies:
   - xtb=6.3
   - tqdm=4.64
   - pip=22.1
-  - rdkit=2022.03
-  - pytorch=1.12.0
-
-prefix: /home/gridsan/tstuyver/miniconda3/envs/enumerator
+  - rdkit=2025.3
+  - autode=1.4

@@ -1,11 +1,11 @@
 from typing import Dict, List
 from enumerator.orbital_systems import LocalizedOrbitalSystem
 
-metal_symbols = ["Al", "Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co", 
+
+metal_symbols = ["Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
     "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
 
-# TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
 def atom_to_num_VOs(atom_symbol: str) -> int:
     """Returns the number of VOs the atom should be initialized with."""
     if atom_symbol == "H" or atom_symbol == "He":
@@ -24,6 +24,7 @@ class ValenceOrbital:
         self.atom_type = atom_type
         self.num_electrons = 0
         self.paired = False
+
 
         # set an identifier attribute that is unique across the entire reacting system
         self.identifier = f'{self.atom_idx}_{self.idx}'
@@ -58,7 +59,8 @@ class Atom:
     """A class corresponding to individual atoms."""
 
     def __init__(
-        self, molecule: "Molecule", atom_type: str, idx: int, num_valence_electrons: int, metal=False
+        self, molecule: "Molecule", atom_type: str, idx: int, num_valence_electrons: int,
+            metal=False,
     ):
         self.molecule = molecule
         self.atom_type = atom_type
@@ -72,7 +74,7 @@ class Atom:
             self.valence_orbitals.append(
                 ValenceOrbital(vo_idx, self.idx, self.atom_type)
             )
-        
+
         if self.metal: # for metals, also add the empty p orbitals of the next shell
             for vo_idx in range(self.num_valence_orbitals, self.num_valence_orbitals + 3):
                 self.valence_orbitals.append(
@@ -91,7 +93,7 @@ class Atom:
                 vo.set_population(1)
             elif vo.idx < n_singly_occ + n_doubly_occ:
                 vo.set_population(2)
-    
+
     def __str__(self):
         return f'idx: {self.idx}, type: {self.atom_type}, vos: {self.valence_orbitals}'
 
@@ -104,8 +106,7 @@ class LocalizedConfiguration:
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
 
-    # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
-    # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
+
     def set_up_localized_orbital_systems(self, orig_mol, atoms):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
@@ -157,7 +158,7 @@ class LocalizedConfiguration:
 
         return orbital_systems
 
-    # TODO: you are losing lone pairs here 
+
     def select_active_orbital_systems(self):
         """ Only keep 1 orbital system of a triple/double bond, and only keep 1 X-H bond for every atom X """
         active_orbital_systems = set()
@@ -205,4 +206,4 @@ class LocalizedConfiguration:
         list: A list of valence orbitals (VOs) associated with the orbital systems.
         """
         return self.vo_list
-    
+
