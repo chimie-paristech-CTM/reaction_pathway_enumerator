@@ -6,9 +6,6 @@ metal_symbols = ["Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg"
     "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
 
-# TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
-
-# TODO: What about 3rd row elements (and upper) when you have availability of d orbitals (P 5 bonds and S 6 bonds)
 def atom_to_num_VOs(atom_symbol: str) -> int:
     """Returns the number of VOs the atom should be initialized with."""
     if atom_symbol == "H" or atom_symbol == "He":
@@ -109,8 +106,7 @@ class LocalizedConfiguration:
         self.vo_list = self.set_vo_list()
         self.vo_to_orbital_system_dict = self.get_vo_to_orbital_system_dict()
 
-    # TODO: what about circular 3c bonds (e.g., interaction between ethylene and PdL2)?
-    # TODO: should you include validity checks to ensure that the localized configuration makes sense (e.g., exotic boding situations resulting in incorrect vo pairing)?
+
     def set_up_localized_orbital_systems(self, orig_mol, atoms):
         """Construct the initial orbital systems (either 1, 2 or 3 vos in a linear arrangment)."""
         orbital_systems = []
@@ -162,7 +158,7 @@ class LocalizedConfiguration:
 
         return orbital_systems
 
-    # TODO: you are losing lone pairs here 
+
     def select_active_orbital_systems(self):
         """ Only keep 1 orbital system of a triple/double bond, and only keep 1 X-H bond for every atom X """
         active_orbital_systems = set()

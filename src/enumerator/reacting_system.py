@@ -1,7 +1,4 @@
-import itertools
-
 from rdkit import Chem
-from rdkit.Chem import EnumerateStereoisomers
 import re
 from itertools import permutations, product
 from tqdm import tqdm
@@ -98,8 +95,7 @@ class Reaction:
             self.modified_path[start_idx].num_electrons = self.orig_path[end_idx].num_electrons
             self.modified_path[end_idx].num_electrons = 1
 
-    # TODO: for 3 center systems, you will still need to add a bond at the edges because you are breaking up the bonding system completely.
-    # For now you can ignore this however since this is inherently problematic with SMILES.
+
     def generate_smiles(self, allow_zwitterions=True):
         """
         Generate an output SMILES string.
@@ -331,7 +327,7 @@ class OrbitalGraph:
             and destination not in self.potential_intrafragment_interactions[source.identifier]:
             self.potential_intrafragment_interactions[source.identifier].add(destination)
 
-    # TODO: complete this once you have integrated NBO read-in/-out
+    # Further development: evaluate whether integrating the secondary interaction via a function is preferable than the the current implementation.
     def add_secondary_interaction(self, source, destination):
         """
         Add a secondary interaction between valence orbitals.
@@ -342,7 +338,6 @@ class OrbitalGraph:
         """
         pass
 
-    # TODO: complete this once you have integrated NBO read-in/-out
     def get_secondary_interactions(self, vo):
         return list(self.secondary_interactions.get(vo.identifier, {}))
 
@@ -618,7 +613,7 @@ class OrbitalGraph:
                    new_interfragment_path[0].num_electrons + new_interfragment_path[-1].num_electrons == 4:
                     if len(new_interfragment_path) != 2:
                         continue
-                    # addition to metals ... like addition of C#O to Co
+                    # addition to metals like addition of C#O to Co
                     if not (new_interfragment_path[0].atom_type in metal_symbols or
                             new_interfragment_path[1].atom_type in metal_symbols):
                         continue

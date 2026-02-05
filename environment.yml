@@ -5,8 +5,8 @@ dependencies:
   - ipykernel=6.9
   - pandas=1.4
   - pebble=4.6
-  - xtb=6.6
+  - xtb=6.3
   - tqdm=4.64
   - pip=22.1
-  - rdkit=2022.03
+  - rdkit=2025.3
   - autode=1.4

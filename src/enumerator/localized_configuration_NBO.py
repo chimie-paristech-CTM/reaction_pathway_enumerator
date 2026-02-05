@@ -8,12 +8,7 @@ from rdkit import Chem
 metal_symbols = ["Fe", "Cu", "Au", "Ag",  "Zn", "Ni",  "Sn",  "Pb",  "Pt",  "Hg",  "Ti", "Co",
     "Cr",  "Mg",  "Mn",  "W",   "Bi",  "Sb",  "Cd",  "V",   "U",   "Pd",  "Rh",  "Ru"]
 
-extra_valence_symbols = ["P", "S", "Cl", "As", "Se",  "Br", "Sb",  "Te",  "I"]
 
-
-# TODO: metals added in principle, but this won't work well until you have a good description of the bonding in the graph
-
-# TODO: What about 3rd row elements (and upper) when you have availability of d orbitals (P 5 bonds and S 6 bonds)
 def atom_to_num_VOs(atom_symbol: str) -> int:
     """Returns the number of VOs the atom should be initialized with."""
     if atom_symbol == "H" or atom_symbol == "He":
@@ -282,7 +277,6 @@ class LocalizedConfigurationNBO:
 
         return orbital_systems, ed_new_mol, orbital_system_idx
 
-    # TODO: you are losing lone pairs here
     def select_active_orbital_systems(self):
         """ Only keep 1 orbital system of a triple/double bond, and only keep 1 X-H bond for every atom X """
         active_orbital_systems = set()
@@ -343,7 +337,7 @@ class LocalizedConfigurationNBO:
                         for idx, vo in enumerate(orbital_system.vos):
                             vos.append(vo)
 
-                            # the secondary interaction in metals contain several atoms ... sometimes you need only the metal center and one more ... case 2A cobalt
+                            # the secondary interaction in metals contain several atoms, sometimes you need only the metal center and one more (case 2B cobalt)
                             if metal_in_donor and idx == 0:
                                 secondary_interaction_vos.append(vos[::-1].copy())
                             if vo.atom_type in metal_symbols:
@@ -416,7 +410,7 @@ class LocalizedConfigurationNBO:
 
 
     # the order of the atoms in the secondary interaction NBO sometimes is not sequentially
-    # [C:1](=O:2)[C:3=][C:4] ... in NBO will be ... BD C 1- O 2 ---  BD* C 3- C 4 but the correct systems will be O = C - C = C
+    # -- [C:1](=O:2)[C:3=][C:4] -- in NBO will be BD C 1- O 2 ---  BD* C 3- C 4 but the correct systems will be O = C - C = C
     def reorder_secondary_interacting_vos(self, secondary_interaction_vos):
 
         mol = self.orig_mol
@@ -470,7 +464,7 @@ class LocalizedConfigurationNBO:
                 ordered_secondary_interaction_vos.append(vos_system)
                 continue
 
-            # Order the rest ... in case you need it
+            # Order the rest in case you need it
             for vo in interaction[last_vo_verified:]:
                 last_vo = vos_system[last_vo_verified - 1]
                 ngh_vo = get_neighbors_idxs(mol.GetAtomWithIdx(last_vo.atom_idx - 1))

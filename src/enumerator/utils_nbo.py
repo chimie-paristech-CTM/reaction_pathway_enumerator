@@ -153,7 +153,7 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list, organometallic):
         idxs_0 = [i for i, x in enumerate(nbo_lines[idx_smi]) if x == line_0]
         idxs_1 = [i for i, x in enumerate(nbo_lines[idx_smi]) if x == line_1]
 
-        # when S=2, NBO split electrons into alpha/beta ... therefore, the amount of electrons in BD and LP should be divided by 2
+        # when S=2, NBO split electrons into alpha/beta therefore, the amount of electrons in BD and LP should be divided by 2
         num_idxs = len(idxs_0)
         for idx_0, idx_1 in zip(idxs_0, idxs_1):
             for line in nbo_lines[idx_smi][idx_0 + 1: idx_1]:
@@ -173,7 +173,7 @@ def extract_electrons_based_bond_matrix(nbo_lines, smiles_list, organometallic):
                     electrons_per_atom[atom_in_numbered_smiles] = electrons_per_atom.get(atom_in_numbered_smiles, 0) + 2/num_idxs
                     lp_per_atom[atom_in_numbered_smiles] = lp_per_atom.get(atom_in_numbered_smiles, 0) + 1/num_idxs
 
-        # for conjugated systems, is it possible that the LP is not located in the same atom of the LV ... and you will have atoms with a fractional number of electrons
+        # for conjugated systems, it is possible that the LP is not located in the same atom of the LV, and you will have atoms with a fractional number of electrons
         if num_idxs == 2:
             for atom in lp_per_atom:
                 if electrons_per_atom[atom].is_integer():
