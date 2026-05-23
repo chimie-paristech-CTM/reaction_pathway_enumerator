@@ -94,7 +94,7 @@ def get_thermodynamically_feasible_products():
 
 
 def enumerate_potential_products(smiles, idx_list, max_length=2, allow_zwitterions=True, nbo=False, nbo_dir=None,
-                                 threshold_strong_sec_interaction=85.0, nproc=4, threshold_sec_interaction=11.5,
+                                 threshold_strong_sec_interaction=85.0, nproc=4, threshold_sec_interaction=12.0,
                                  num_unpaired_elec=-1):
     """Enumerates all the potential products based on either an index list or a number of bonding systems.
 
