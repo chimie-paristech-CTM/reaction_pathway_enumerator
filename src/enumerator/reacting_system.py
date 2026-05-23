@@ -525,6 +525,8 @@ class OrbitalGraph:
         if self.nbo:
             # adding the delocalized vos that were obtained with NBO and secondary interaction analysis
             for secondary_vos in self.localized_configuration.secondary_interaction_vos_systems:
+                if len(secondary_vos) == 0:
+                    continue
                 vo = secondary_vos[0]
                 all_intrafragment_paths[self.atom_to_fragment_dict[vo.atom_idx]].append(secondary_vos)
                 if self.dipole_idxs and len(secondary_vos) == 3:
