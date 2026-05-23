@@ -286,8 +286,12 @@ class LocalizedConfigurationNBO:
             system_info = f'{orbital_system.get_num_electrons()}, {set(orbital_system.get_heavy_atoms())}, {len(orbital_system.get_atoms())}, {orbital_system.get_lp_idx()}'
             if orbital_system.is_lp():
                 lp_idx = orbital_system.vos[0].lp_idx
-                if check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
-                    already_covered_systems.add(system_info)
+                if self.organometallic:
+                    if not check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
+                        already_covered_systems.add(system_info)
+                else:
+                    if check_lp_within_secondary_interaction(self.secondary_interactions_raw, lp_idx):
+                        already_covered_systems.add(system_info)
 
             if system_info not in already_covered_systems:
                 already_covered_systems.add(system_info)
@@ -466,17 +470,20 @@ class LocalizedConfigurationNBO:
 
             # Order the rest in case you need it
             for vo in interaction[last_vo_verified:]:
-                last_vo = vos_system[last_vo_verified - 1]
-                ngh_vo = get_neighbors_idxs(mol.GetAtomWithIdx(last_vo.atom_idx - 1))
-                if vo.atom_idx in ngh_vo:
-                    vos_system.append(vo)
-                    last_vo_verified = last_vo_verified + 1
-                else:
-                    if last_vo_verified + 2 <= len(interaction):
-                        next_vo = interaction[last_vo_verified + 2]
-                        vos_system.append(next_vo)
+                try:
+                    last_vo = vos_system[last_vo_verified - 1]
+                    ngh_vo = get_neighbors_idxs(mol.GetAtomWithIdx(last_vo.atom_idx - 1))
+                    if vo.atom_idx in ngh_vo:
                         vos_system.append(vo)
-                        last_vo_verified = last_vo_verified + 2
+                        last_vo_verified = last_vo_verified + 1
+                    else:
+                        if last_vo_verified + 2 <= len(interaction):
+                            next_vo = interaction[last_vo_verified + 2]
+                            vos_system.append(next_vo)
+                            vos_system.append(vo)
+                            last_vo_verified = last_vo_verified + 2
+                except IndexError:
+                    break
 
             if last_vo_verified > len(interaction):
                 break
