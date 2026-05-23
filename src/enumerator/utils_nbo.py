@@ -85,7 +85,7 @@ def generate_input_gaussian(molecule, n_cores, basis_set='def2svp', functional='
         file.write(f"NBO input \n\n")
         file.write(f" {molecule.charge} {molecule.mult} \n")
         for atom in molecule.atoms:
-            file.write(f"{atom.atomic_symbol}   {atom.coord[0]}   {atom.coord[1]}   {atom.coord[2]} \n")
+            file.write(f"{atom.atomic_symbol}   {atom.coord[0]:.4f}   {atom.coord[1]:.4f}   {atom.coord[2]:.4f} \n")
         file.write("\n")
         file.write(r"$nbo $end")
         file.write("\n\n")
